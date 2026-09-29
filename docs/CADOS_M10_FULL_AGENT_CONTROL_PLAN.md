@@ -2,6 +2,8 @@
 
 **Goal**: every tracked agent (aclaude / aclaude-b / aclaude-c / acodex / api / ahermes, + aagy read-only) can drive **all 457 implemented** AutoCAD SDK operations through the CAD OS safe layer — preferred-first, selectable, safe.
 
+> **Retired (2026-09-29):** Hermes (`ahermes`) and Gemini (`agemini`) are no longer in use. Their registration items and status-log mentions below are kept as history.
+
 **Why this is needed** (verified 2026-06-26, `project_cados_v1_verification`): `457 implemented` is a native-build/test claim, NOT agent-reachability. The safe agent surface (cadctl CLI + 12 MCP tools) only drives ~5–10 ops end-to-end; ~450 are inspectable-not-invocable. The MCP server `cadagent_mcp.py` is also **not registered in any agent's config** → no agent gets even the 12 tools today.
 
 **Keystone mechanism**: `cadctl.inspect(include_rich=True)` already drives the native op `inspect.database.graph` via `run_job.run_router_cad_job(staged, out_dir, op_id, write_mode, job_path)` — a GENERIC native-job runner (`-Operation <op> -WriteMode <mode> -JobPath <args.json>`). The keystone generalizes this to any op_id behind a registry allow-list + write-mode gate.
