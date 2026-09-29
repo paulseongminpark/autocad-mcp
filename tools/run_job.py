@@ -25,6 +25,14 @@ from verification import file_snapshot as _file_snapshot
 
 ROUTER_HOME = Path(__file__).resolve().parents[1]
 ROUTER_PS1 = ROUTER_HOME / "tools" / "autocad-router.ps1"
+# _ROUTER_STDIN_NOTE: every router launch passes stdin=DEVNULL. Inside the
+# cadagent MCP stdio server an inherited stdin is the JSON-RPC pipe, with the
+# server's own read pending on it; a descendant that touches its stdin at start
+# (python probe_routes.py under the router) then blocks until the next MCP
+# message arrives. Measured 2026-09-28: cad.inspect_drawing sat 11+ min at
+# probe_routes.py (0 CPU) until a cancel was sent; the same probe chain under a
+# parent with a pending stdin read never finished with inherited stdin and
+# finished in 7 s with DEVNULL.
 _NATIVE_OUTPUT_OPERATIONS = frozenset({
     "transform.database.dxf_out",
     "transform.database.save_as",
@@ -221,6 +229,7 @@ def run_router_extract(staged_dwg: str, run_dir: str, *, intent: str = "dwg",
         proc = subprocess.run(
             cmd,
             cwd=str(ROUTER_HOME),
+            stdin=subprocess.DEVNULL,  # see _ROUTER_STDIN_NOTE
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -322,7 +331,8 @@ def run_router_cad_job(staged_dwg: str, run_dir: str, operation: str, *,
     code = None
     try:
         proc = subprocess.run(
-            cmd, cwd=str(ROUTER_HOME), capture_output=True, text=True,
+            cmd, cwd=str(ROUTER_HOME), stdin=subprocess.DEVNULL,  # see _ROUTER_STDIN_NOTE
+            capture_output=True, text=True,
             encoding="utf-8", errors="replace", timeout=timeout,
         )
         stdout_text = proc.stdout or ""
@@ -458,8 +468,25 @@ def build_write_batch_command(staged_dwg: str, job_list_path: str, *,
     return cmd
 
 
+def _write_batch_timeout_s(job_list_path: str, batch_timeout_ms: int = 0) -> int:
+    """Python-side ceiling for one write-batch session: the router's own
+    session timeout plus 600 s for engine start, _QSAVE and the result copy,
+    never below the old fixed 3600 s. The router's auto rule
+    (Invoke-CadNativeWriteBatchRoute) is max(600 s, 120 s + 0.5 s per job);
+    the fixed 3600 s used to cut a large one-session batch short first."""
+    if batch_timeout_ms and batch_timeout_ms > 0:
+        router_s = batch_timeout_ms / 1000.0
+    else:
+        try:
+            n_jobs = len(json.loads(Path(job_list_path).read_text(encoding="utf-8-sig")))
+        except (OSError, ValueError, TypeError):
+            n_jobs = 0
+        router_s = max(600.0, 120.0 + 0.5 * n_jobs)
+    return int(max(3600.0, router_s + 600.0))
+
+
 def run_router_write_batch(staged_dwg: str, run_dir: str, job_list_path: str, *,
-                           timeout: int = 3600,
+                           timeout: int = 0,
                            batch_timeout_ms: int = 0) -> dict:
     """Invoke the router native write-batch lane; capture everything.
 
@@ -470,7 +497,11 @@ def run_router_write_batch(staged_dwg: str, run_dir: str, job_list_path: str, *,
     <run_dir>/write_batch_result.json (written by the route before it returns);
     stdout parsing is only the fallback. ``envelope.qsave_done`` is the
     batch-persisted proof; ``envelope.results`` is the per-op status list.
+    ``timeout=0`` sizes the subprocess ceiling from the job count
+    (_write_batch_timeout_s).
     """
+    if not timeout:
+        timeout = _write_batch_timeout_s(job_list_path, batch_timeout_ms)
     run_dir_p = Path(run_dir)
     run_dir_p.mkdir(parents=True, exist_ok=True)
     stdout_path = run_dir_p / "stdout.txt"
@@ -493,7 +524,8 @@ def run_router_write_batch(staged_dwg: str, run_dir: str, job_list_path: str, *,
     code = None
     try:
         proc = subprocess.run(
-            cmd, cwd=str(ROUTER_HOME), capture_output=True, text=True,
+            cmd, cwd=str(ROUTER_HOME), stdin=subprocess.DEVNULL,  # see _ROUTER_STDIN_NOTE
+            capture_output=True, text=True,
             encoding="utf-8", errors="replace", timeout=timeout,
         )
         stdout_text = proc.stdout or ""

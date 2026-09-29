@@ -81,7 +81,7 @@ MCP_TOOL_CONTRACT_V1: Mapping[str, tuple[str, str]] = MappingProxyType(
             "_tool_patch_dry_run",
         ),
         "cad.patch_apply_staged": (
-            "fabd0dd36b470766708a3edd5c1793416f492d6e32c3b78cc6de4c80708f923c",
+            "15d2df0e335ac504cbb0d70db83373e76f6761053b0bb8194fb58fccd3185790",
             "_tool_patch_apply_staged",
         ),
         "cad.anchor_set": (
