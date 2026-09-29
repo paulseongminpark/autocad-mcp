@@ -1,6 +1,6 @@
 # CAD OS — Install & Use (team)
 
-Let an AI agent (Claude / Codex / Pi / Hermes / Gemini) **drive the AutoCAD SDK
+Let an AI agent (Claude / Codex / Pi / Gemini) **drive the AutoCAD SDK
 directly** — 479 native ObjectARX operations + inspect / patch / diff / validate /
 query — through one MCP server (`cadagent`), safely (original DWGs stay read-only).
 
@@ -92,9 +92,6 @@ PYTHONIOENCODING = "utf-8"
 ```
 
 **Pi** — `~/.pi/agent/mcp.json` → `mcpServers.cadagent` (same command/args/env).
-
-**Hermes** — `~/.hermes/config.yaml` → `mcp_servers.cadagent` (command/args/env),
-and add `mcp-cadagent` under `platform_toolsets.cli`.
 
 **Gemini (reviewer, READ-ONLY)** — `~/.gemini/settings.json` → `mcpServers.cadagent`
 with an `includeTools` whitelist that **excludes the two write-capable tools**
