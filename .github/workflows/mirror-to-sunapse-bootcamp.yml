@@ -1,7 +1,7 @@
 name: Mirror to SUNAPSE-BOOTCAMP
 
-# One-way mirror. This repository (paulseongminpark/autocad-sdk-router) is canonical;
-# SUNAPSE-BOOTCAMP/autocad-sdk-router is a read-only copy for the bootcamp org.
+# One-way mirror. This repository (paulseongminpark/autocad-mcp) is canonical;
+# SUNAPSE-BOOTCAMP/autocad-mcp is a read-only copy for the bootcamp org.
 # Issues and PRs live here only. The mirror receives main and tags, fast-forward only:
 # if the mirror's main ever gains commits that are not on canonical main, the job fails
 # instead of overwriting them. Fix by bringing those commits upstream via PR, then re-run.
@@ -25,7 +25,8 @@ jobs:
     timeout-minutes: 10
     # Only the canonical repo mirrors. The mirror receives this file too, and must not
     # try to run it against itself (no token there; it would just fail and page).
-    if: github.repository == 'paulseongminpark/autocad-sdk-router'
+    # Matched by owner, not full name, so a repository rename does not silently stop mirroring.
+    if: github.repository_owner == 'paulseongminpark'
     # The MIRROR_TOKEN secret is bound to this environment, which only main may use.
     environment: sunapse-mirror
     steps:
@@ -37,7 +38,7 @@ jobs:
       - name: Push main and tags to the mirror (fast-forward only)
         env:
           MIRROR_TOKEN: ${{ secrets.MIRROR_TOKEN }}
-          MIRROR_REPO: SUNAPSE-BOOTCAMP/autocad-sdk-router
+          MIRROR_REPO: SUNAPSE-BOOTCAMP/autocad-mcp
         run: |
           set -euo pipefail
           # Credentials go in a header, not the remote URL, so they never appear in git output.
