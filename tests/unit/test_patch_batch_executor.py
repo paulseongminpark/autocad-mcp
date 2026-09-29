@@ -83,6 +83,34 @@ def test_plan_preserves_order_and_covers_every_index():
     assert plan["totals"]["op_count"] == 23
 
 
+def test_default_plan_is_one_session_for_independent_ops():
+    # No cap by default: the old fixed 500 split a 12,397-line patch into 25
+    # AutoCAD start/open/_QSAVE sessions (2026-09-28).
+    plan = pbe.plan_write_batches(_records(1203))
+    assert plan["validation_errors"] == []
+    assert plan["totals"]["batch_count"] == 1
+    assert plan["batches"][0]["op_count"] == 1203
+
+
+def test_default_execute_runs_one_session(tmp_path):
+    run = _runner(lambda n, jl: _pass_envelope(jl))
+    out = pbe.execute_write_batches(_records(1203), str(tmp_path / "staged.dwg"),
+                                    str(tmp_path / "batches"), run_batch=run)
+    assert out["status"] == "ok" and out["ops_ok"] == 1203
+    assert len(run.calls) == 1
+
+
+def test_write_batch_timeout_follows_job_count(tmp_path):
+    import run_job
+    jl = tmp_path / "job_list.json"
+    jl.write_text(json.dumps([{}] * 12397), encoding="utf-8")
+    # router auto rule 120 s + 0.5 s/job = 6318.5 s, plus 600 s margin
+    assert run_job._write_batch_timeout_s(str(jl)) == 6918
+    jl.write_text(json.dumps([{}] * 10), encoding="utf-8")
+    assert run_job._write_batch_timeout_s(str(jl)) == 3600  # floor = old fixed value
+    assert run_job._write_batch_timeout_s(str(jl), batch_timeout_ms=7_200_000) == 7800
+
+
 def test_job_doc_is_v2_write_copy_staged():
     doc = pbe.build_native_job_doc("write.entity.line",
                                    {"start": [0, 0, 0], "end": [1, 1, 0]})

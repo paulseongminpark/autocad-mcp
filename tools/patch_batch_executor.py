@@ -50,11 +50,15 @@ import patch_ops  # noqa: E402
 
 SCHEMA = "ariadne.cad_patch.batch_execution.v1"
 
-# Default batch size for write-only batches. The planner's own default (100)
-# was sized for mixed/atomic-group smoke planning; pure write batches are
-# cheap per-op once the session is up, so a larger default amortizes the
-# ~10-20s accoreconsole startup further. Callers tune per drawing size.
-DEFAULT_MAX_OPS_PER_BATCH = 500
+# Default: no size cap -- every op runs in ONE accoreconsole session (start,
+# open, run all, _QSAVE once). Atomic groups and relink barriers still split
+# where correctness needs it (patch_batch_planner). The old fixed cap of 500
+# re-paid start + open + _QSAVE per 500 independent ops: a 12,397-line patch
+# (2026-09-28) was planned as 25 sessions, each costing 30 s to 3 min while its
+# own 500 ops ran in seconds; as one session it ran 12,397/12,397 ok. Pass
+# max_ops_per_batch only for a measured reason to split (memory, a time
+# budget, resume granularity on a very large patch).
+DEFAULT_MAX_OPS_PER_BATCH: Optional[int] = None
 
 
 def _sanitize(name: str) -> str:
@@ -80,14 +84,14 @@ def build_native_job_doc(native_op: str, args: Dict[str, Any]) -> Dict[str, Any]
 
 
 def plan_write_batches(applied_records: List[Dict[str, Any]], *,
-                       max_ops_per_batch: int = DEFAULT_MAX_OPS_PER_BATCH) -> Dict[str, Any]:
+                       max_ops_per_batch: Optional[int] = DEFAULT_MAX_OPS_PER_BATCH) -> Dict[str, Any]:
     """plan_batches over the resolved records, preserving op order + atomic
     groups (block-append runs). Batch ``op_indices`` index into
-    ``applied_records`` positionally."""
+    ``applied_records`` positionally. ``max_ops_per_batch=None`` = no cap."""
     planner_ops = [{"operation": r.get("patch_op"), "args": r.get("args") or {}}
                    for r in applied_records]
-    plan = patch_batch_planner.plan_batches(planner_ops,
-                                            max_ops_per_batch=max_ops_per_batch)
+    plan = patch_batch_planner.plan_batches(
+        planner_ops, max_ops_per_batch=max_ops_per_batch or max(1, len(planner_ops)))
     errors = patch_batch_planner.validate_plan(plan, planner_ops)
     plan["validation_errors"] = errors
     return plan
@@ -114,7 +118,7 @@ def _load_cached_envelope(run_dir: str) -> Optional[Dict[str, Any]]:
 def execute_write_batches(applied_records: List[Dict[str, Any]],
                           staged_dwg: str,
                           batches_dir: str, *,
-                          max_ops_per_batch: int = DEFAULT_MAX_OPS_PER_BATCH,
+                          max_ops_per_batch: Optional[int] = DEFAULT_MAX_OPS_PER_BATCH,
                           run_batch: Optional[Callable[..., Dict[str, Any]]] = None,
                           resume: bool = True,
                           step_cb: Optional[Callable[[Dict[str, Any]], None]] = None,

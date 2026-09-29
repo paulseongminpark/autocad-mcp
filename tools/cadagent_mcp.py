@@ -295,7 +295,7 @@ def _tool_patch_apply_staged(args: Dict[str, Any]) -> Dict[str, Any]:
     if not out_dir:
         return _err("missing required arg: out_dir")
     # #39: optional batched lane -- batch={"enabled": true, "max_ops_per_batch":
-    # 500, "pre_inspect": "skip"|"full", "post_inspect": "skip"|"full",
+    # <omit = one session>, "pre_inspect": "skip"|"full", "post_inspect": "skip"|"full",
     # "resume": true, "batch_timeout_ms": 0}. Forwarded only when the loaded
     # patch_engine supports it (older shells degrade to the per-op lane).
     batch = args.get("batch")
@@ -721,7 +721,8 @@ _TOOLS: List[Dict[str, Any]] = [
                 "batch": {
                     "type": "object",
                     "description": "#39 batched lane options. {enabled: bool, "
-                                   "max_ops_per_batch: int (default 500), pre_inspect: "
+                                   "max_ops_per_batch: int (default: no cap, every op in one "
+                                   "AutoCAD session; set only to split a very large patch), pre_inspect: "
                                    "'skip'|'full' (default skip), post_inspect: 'skip'|'full' "
                                    "(default skip), resume: bool (default true), "
                                    "batch_timeout_ms: int (0=auto)}. Skipped inspects are "
