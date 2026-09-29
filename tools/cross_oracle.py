@@ -177,7 +177,7 @@ _ENGINE_INTENT = {
 # itself so the two cannot silently drift apart.
 
 _KNOWN_ENTITY_FIELDS = frozenset({
-    "handle", "stable_id", "stable_id_ordinal", "object_id", "class", "dxf_name", "owner_handle", "space",
+    "handle", "stable_id", "stable_id_ordinal", "object_id", "class", "dxf_name", "owner_handle", "block_record_handle", "space",
     "layout", "layer", "linetype", "color_index", "lineweight", "visible",
     # PR #29 display set: color method + explicit RGB + XCLIP spatial filter.
     "color_method", "true_color", "xclip",
@@ -191,6 +191,11 @@ _KNOWN_GEOMETRY_LEAF_FIELDS = frozenset({
     "minor_ratio", "start_angle", "end_angle", "normal", "closed", "vertices",
     "text", "height", "rotation", "block_name", "scale", "dimension_type",
     "measurement", "control_points", "degree", "loops", "pattern_name",
+    # E212 native scene-v2: immediate-owner plane, INSERT graph target,
+    # authoritative matrix/convention, and explicit instance family semantics.
+    "coordinates_frame", "plane_basis_owner", "legacy_polyline_type",
+    "block_record_handle", "definition_to_owner_transform",
+    "transform_convention", "instance_semantics",
     # p8-simple2: 3DFACE/SOLID/TRACE's 4 flat vertices + 3DFACE's per-edge
     # visibility flags (schemas/dwg_graph_ir.v1.schema.json geometry $defs).
     "p0", "p1", "p2", "p3", "edge_visibility",
@@ -200,7 +205,7 @@ _KNOWN_GEOMETRY_LEAF_FIELDS = frozenset({
     # vertices[].items, not here (schemas/dwg_graph_ir.v1.schema.json).
     # "elevation" is shared with a1-hatchread's AcDbHatch plane elevation
     # (one schema key, two producers).
-    "elevation", "default_start_width", "default_end_width",
+    "elevation", "default_start_width", "default_end_width", "vertex_count",
     # a1-hatchread: the rest of AcDbHatch's own state (dwg_graph_ir.v1.
     # schema.json geometry properties, kept in lockstep with that schema --
     # see test_cross_oracle.py's own schema<->registry drift check).
@@ -232,7 +237,7 @@ _KNOWN_GEOMETRY_LEAF_FIELDS = frozenset({
 # set below, find_uncertified_oracle_fields flags it not_certified rather than
 # silently skipping it (recognized-by-schema != oracle-certified).
 _IDENTITY_PROVENANCE_FIELDS = frozenset({
-    "handle", "stable_id", "stable_id_ordinal", "object_id", "class", "dxf_name", "owner_handle", "space", "source",
+    "handle", "stable_id", "stable_id_ordinal", "object_id", "class", "dxf_name", "owner_handle", "block_record_handle", "space", "source",
 })
 
 # Top-level fields ACTIVELY multiset-compared by default (a subset of the known

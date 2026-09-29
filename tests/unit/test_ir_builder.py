@@ -369,7 +369,7 @@ class TestNativeGraphGeometryLifting(unittest.TestCase):
                         {"point": [10.0, 0.0, 0.0], "bulge": 0.0}],
         })
         self.assertEqual(ent["geometry"], {
-            "kind": "lwpolyline", "closed": True,
+            "kind": "lwpolyline", "vertex_count": 2, "closed": True,
             "vertices": [{"point": [0.0, 0.0, 0.0], "bulge": 0.5},
                         {"point": [10.0, 0.0, 0.0], "bulge": 0.0}],
         })
