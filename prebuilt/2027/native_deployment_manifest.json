@@ -14,7 +14,7 @@
     "source_tree":  {
                         "algorithm":  "sha256",
                         "canonicalization":  "crlf_to_lf_unless_nul",
-                        "digest":  "1dfca7dd3605f080a5d67bb0433917274859d84b5fba3b6b630c84d98e6e67ca",
+                        "digest":  "b025addcb2338428b4c0a1c593bb1ecadc15d37db0d73fe851347f926c4e3e37",
                         "inputs":  [
                                        {
                                            "path":  "src/Ariadne.AcadNative/Ariadne.AcadNative.arx.vcxproj",
@@ -28,8 +28,8 @@
                                        },
                                        {
                                            "path":  "src/Ariadne.AcadNative/AriadneNativeJob.cpp",
-                                           "sha256":  "412a787d5388ea13d6df11a68c7b1b20989a6bae22e567ae0b8e2c26e7d7d8f6",
-                                           "bytes":  393187
+                                           "sha256":  "22932728dc88b07cb4e67da8f87e0980ecf0e1a4bd76276a9234d70a4d058268",
+                                           "bytes":  409625
                                        },
                                        {
                                            "path":  "src/Ariadne.AcadNative/AriadnePalette.cpp",
@@ -173,7 +173,7 @@
                                        }
                                    ]
                     },
-    "source_tree_digest":  "1dfca7dd3605f080a5d67bb0433917274859d84b5fba3b6b630c84d98e6e67ca",
+    "source_tree_digest":  "b025addcb2338428b4c0a1c593bb1ecadc15d37db0d73fe851347f926c4e3e37",
     "source_authority":  {
                              "source_inventory_authoritative":  true,
                              "captured_inputs_match_head":  true,
@@ -184,7 +184,7 @@
     "compilation_tree":  {
                              "algorithm":  "sha256",
                              "byte_representation":  "canonical_lf_unless_nul_mirror_bytes",
-                             "digest":  "1dfca7dd3605f080a5d67bb0433917274859d84b5fba3b6b630c84d98e6e67ca",
+                             "digest":  "b025addcb2338428b4c0a1c593bb1ecadc15d37db0d73fe851347f926c4e3e37",
                              "inputs":  [
                                             {
                                                 "path":  "src/Ariadne.AcadNative/Ariadne.AcadNative.arx.vcxproj",
@@ -198,8 +198,8 @@
                                             },
                                             {
                                                 "path":  "src/Ariadne.AcadNative/AriadneNativeJob.cpp",
-                                                "sha256":  "412a787d5388ea13d6df11a68c7b1b20989a6bae22e567ae0b8e2c26e7d7d8f6",
-                                                "bytes":  393187
+                                                "sha256":  "22932728dc88b07cb4e67da8f87e0980ecf0e1a4bd76276a9234d70a4d058268",
+                                                "bytes":  409625
                                             },
                                             {
                                                 "path":  "src/Ariadne.AcadNative/AriadnePalette.cpp",
@@ -343,7 +343,7 @@
                                             }
                                         ]
                          },
-    "compilation_tree_digest":  "1dfca7dd3605f080a5d67bb0433917274859d84b5fba3b6b630c84d98e6e67ca",
+    "compilation_tree_digest":  "b025addcb2338428b4c0a1c593bb1ecadc15d37db0d73fe851347f926c4e3e37",
     "source_provenance":  {
                               "compilation_input":  "immutable_starting_snapshot_mirror",
                               "mirror_ephemeral":  true,
@@ -357,8 +357,8 @@
     "artifacts":  [
                       {
                           "leaf":  "Ariadne.AcadNativeDbx.dbx",
-                          "sha256":  "ab6d59ea05b22f6619203898fbac7387b85e09d8463afa7db87c888660bb91fe",
-                          "bytes":  54272,
+                          "sha256":  "7eb5d0da1aec2a219e5517bc17ee408e278d05d9b7fd8c6648768b639a1c5ac2",
+                          "bytes":  54784,
                           "current":  true,
                           "exists":  true,
                           "pe_verification":  {
@@ -374,8 +374,8 @@
                       },
                       {
                           "leaf":  "Ariadne.AcadNative.crx",
-                          "sha256":  "e968c8bdc7e13ca780da53c76df767d939ac8464561478ea25296f6648646e05",
-                          "bytes":  1176576,
+                          "sha256":  "c2307ebfee247fb63084843f29bf920c092d539112f4618722063063caca3f11",
+                          "bytes":  1184256,
                           "current":  true,
                           "exists":  true,
                           "pe_verification":  {
@@ -383,7 +383,7 @@
                                                   "format":  "PE32+",
                                                   "machine":  "0x8664",
                                                   "minimum_bytes":  512,
-                                                  "pe_header_offset":  288,
+                                                  "pe_header_offset":  296,
                                                   "section_count":  6,
                                                   "optional_header_bytes":  240,
                                                   "reason":  "MZ, PE, x64 machine, DLL characteristic, section table, and PE32+ optional header checks passed."
@@ -391,8 +391,8 @@
                       },
                       {
                           "leaf":  "Ariadne.AcadNative.arx",
-                          "sha256":  "d78e0373c2c441990da58800fc0e08ce114968723673ffc7e514796de19d1cc1",
-                          "bytes":  1184256,
+                          "sha256":  "815c1aa4b3faf4280c9e3435ec8ce4c8ad8dcb4dc55c49dc6f3149bbea1affe9",
+                          "bytes":  1192448,
                           "current":  true,
                           "exists":  true,
                           "pe_verification":  {
