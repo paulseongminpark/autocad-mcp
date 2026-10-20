@@ -37,6 +37,7 @@ except Exception:  # pragma: no cover - local fallback keeps the builder standal
 
 IR_SCHEMA_ID = "ariadne.dwg_graph_ir.v1"
 IR_PRODUCER_VERSION = "1.1.0"
+E212_NATIVE_SCENE_PROFILE = "ariadne.dwg_graph_ir.e212_native_scene_v2"
 STABLE_ID_FLOAT_EPSILON = 1e-6
 
 _STABLE_ID_EXCLUDED_ENTITY_FIELDS = frozenset((
@@ -71,6 +72,9 @@ _STABLE_ID_EXCLUDED_ENTITY_FIELDS = frozenset((
 ))
 _STABLE_ID_VIEWPORT_GEOMETRY_EXCLUDES = frozenset(VPORT_MANAGED_FIELDS)
 _STABLE_ID_NESTED_HANDLE_KEYS = frozenset(("handle",))
+_STABLE_ID_GEOMETRY_HANDLE_KEYS = frozenset((
+    "block_record_handle", "dynamic_evaluated_btr_handle",
+))
 
 # dwg_geometry_extract geometry.kind -> IR geometry.kind. The extract contract
 # uses a narrower kind set; map straight through and fall back to "unsupported"
@@ -144,6 +148,24 @@ def _to_number(v):
         except (TypeError, ValueError):
             return None
     return None
+
+
+def _strict_native_profile_number(value):
+    """Normalize a real JSON number without accepting numeric strings/bools."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    number = float(value)
+    return number if math.isfinite(number) else None
+
+
+def _strict_native_profile_point3(value):
+    """Normalize an E212 point/vector only when all three JSON values are numeric."""
+    if not isinstance(value, (list, tuple)) or len(value) != 3:
+        return None
+    point = [_strict_native_profile_number(component) for component in value]
+    if any(component is None for component in point):
+        return None
+    return point
 
 
 def _as_point3(p):
@@ -442,6 +464,8 @@ def _normalize_for_stable_hash(value, *, geometry_kind=None, parent_key=""):
         out = {}
         for key in sorted(value):
             if parent_key == "attributes" and key in _STABLE_ID_NESTED_HANDLE_KEYS:
+                continue
+            if geometry_kind and key in _STABLE_ID_GEOMETRY_HANDLE_KEYS:
                 continue
             if geometry_kind == "viewport" and key in _STABLE_ID_VIEWPORT_GEOMETRY_EXCLUDES:
                 continue
@@ -768,6 +792,7 @@ _NATIVE_CLASS_TO_DXF_KIND = {
     "AcDb2dPolyline": ("POLYLINE", "polyline"),
     "AcDb3dPolyline": ("POLYLINE", "polyline"),
     "AcDbBlockReference": ("INSERT", "block_reference"),
+    "AcDbMInsertBlock": ("INSERT", "block_reference"),
     "AcDbMText": ("MTEXT", "mtext"),
     "AcDbText": ("TEXT", "text"),
     "AcDbAttributeDefinition": ("ATTDEF", "attribute"),
@@ -1002,6 +1027,81 @@ def _geometry_from_native_entity(raw: dict, kind: str) -> dict:
         geom["text"] = str(raw.get("text"))
     if raw.get("block_name") is not None:
         geom["block_name"] = str(raw.get("block_name"))
+    if kind == "block_reference" and "block_record_handle" in raw:
+        geom["block_record_handle"] = raw["block_record_handle"]
+    if "vertex_count" in raw:
+        # Profile population receipt: preserve the native iterator/numVerts
+        # member count verbatim. Do not coerce malformed strings into integers;
+        # schema + semantic equality must fail closed.
+        geom["vertex_count"] = raw["vertex_count"]
+
+    # E212 Phase A: pinned native scene-v2 semantics. Membership checks are
+    # load-bearing here: null is an explicit contract value for
+    # legacy_polyline_type, dynamic_evaluated_btr_handle, and
+    # xref_source_sha256, not an absent field to drop.
+    if "coordinates_frame" in raw:
+        geom["coordinates_frame"] = raw["coordinates_frame"]
+    if "legacy_polyline_type" in raw:
+        geom["legacy_polyline_type"] = raw["legacy_polyline_type"]
+    if "plane_basis_owner" in raw:
+        raw_basis = raw["plane_basis_owner"]
+        if isinstance(raw_basis, dict):
+            # Preserve unknown keys so the closed profile schema rejects an
+            # unsafe/future semantic extension instead of this lift hiding it.
+            basis = dict(raw_basis)
+            for point_key in ("origin", "x_axis", "y_axis", "normal"):
+                if point_key in raw_basis:
+                    point = _strict_native_profile_point3(raw_basis[point_key])
+                    if point is not None:
+                        basis[point_key] = point
+            for literal_key in ("handedness", "positive_angle"):
+                if literal_key in raw_basis:
+                    basis[literal_key] = raw_basis[literal_key]
+            geom["plane_basis_owner"] = basis
+        else:
+            # Preserve null/malformed values so profile schema/admission fails
+            # closed instead of silently erasing the native producer's claim.
+            geom["plane_basis_owner"] = raw_basis
+    if "definition_to_owner_transform" in raw:
+        raw_matrix = raw["definition_to_owner_transform"]
+        matrix_values = (
+            [_strict_native_profile_number(value) for value in raw_matrix]
+            if isinstance(raw_matrix, list) and len(raw_matrix) == 16 else None)
+        if (matrix_values is not None
+                and all(value is not None for value in matrix_values)):
+            geom["definition_to_owner_transform"] = matrix_values
+        else:
+            geom["definition_to_owner_transform"] = raw_matrix
+    if "transform_convention" in raw:
+        geom["transform_convention"] = raw["transform_convention"]
+    if "instance_semantics" in raw:
+        raw_semantics = raw["instance_semantics"]
+        if isinstance(raw_semantics, dict):
+            # Same fail-closed rule as plane_basis_owner: keep unknown keys for
+            # additionalProperties:false to see and reject.
+            semantics = dict(raw_semantics)
+            for string_key in ("mode", "xclip"):
+                if string_key in raw_semantics:
+                    semantics[string_key] = raw_semantics[string_key]
+            for count_key in ("row_count", "column_count"):
+                if count_key in raw_semantics:
+                    value = _strict_native_profile_number(raw_semantics[count_key])
+                    semantics[count_key] = (
+                        int(value) if value is not None and value.is_integer()
+                        else raw_semantics[count_key])
+            for spacing_key in ("row_spacing", "column_spacing"):
+                if spacing_key in raw_semantics:
+                    value = _strict_native_profile_number(raw_semantics[spacing_key])
+                    semantics[spacing_key] = (
+                        raw_semantics[spacing_key] if value is None else value)
+            for nullable_key in (
+                    "dynamic_evaluated_btr_handle", "xref_source_sha256"):
+                if nullable_key in raw_semantics:
+                    semantics[nullable_key] = raw_semantics[nullable_key]
+            geom["instance_semantics"] = semantics
+        else:
+            geom["instance_semantics"] = raw_semantics
+
     if raw.get("pattern_name") is not None:
         geom["pattern_name"] = str(raw.get("pattern_name"))
     if raw.get("gradient_name") is not None:
@@ -1123,7 +1223,7 @@ def _geometry_from_native_entity(raw: dict, kind: str) -> dict:
     if isinstance(raw.get("frame_on"), bool):
         geom["frame_on"] = raw["frame_on"]
     verts = raw.get("vertices")
-    if isinstance(verts, list) and verts:
+    if isinstance(verts, list):
         norm = []
         for v in verts:
             pt = _as_point3(v)
@@ -1146,7 +1246,9 @@ def _geometry_from_native_entity(raw: dict, kind: str) -> dict:
                     if end_w is not None:
                         item["end_width"] = end_w
                     norm.append(item)
-        if norm:
+        if norm or not verts:
+            # Empty planar polylines are still an explicit vertex population,
+            # not an absent payload under the E212 structural profile.
             geom["vertices"] = norm
     # T3a-batch2: a spline's fit points -- distinct from "vertices" (which
     # always means an owning polyline/curve's own defining vertices, with an
@@ -1320,15 +1422,26 @@ def _normalize_block_definitions(raw_block_defs, source_block: dict) -> list:
     _entity_from_native so they carry the same normalized IR entity shape
     ($defs.entity, schemas/dwg_graph_ir.v1.schema.json) as top-level
     entities[] -- dxf_name/geometry/bbox/source, not raw native fields.
-    def_entities already carries the right owner_handle (the block def's own
-    BTR handle) and space ("block") from the native side
-    (collectEntitiesFromBlock), so no extra plumbing is needed here."""
+    New native output already carries owner_handle (the block definition's own
+    BTR handle) and space ("block"). For older collectors, membership in the
+    enclosing block_definition supplies those two authoritative defaults."""
     out = []
-    for bd in raw_block_defs or []:
-        bd = dict(bd)
+    for raw_bd in raw_block_defs or []:
+        bd = dict(raw_bd)
         raw_def_entities = bd.get("def_entities")
         if isinstance(raw_def_entities, list) and raw_def_entities:
-            bd["def_entities"] = [_entity_from_native(e, source_block) for e in raw_def_entities]
+            owner_handle = str(bd.get("handle", "") or "")
+            normalized_entities = []
+            for raw_entity in raw_def_entities:
+                owned = dict(raw_entity)
+                # Membership in this block_definition is itself authoritative
+                # owner context. Preserve an explicit native owner/space, but
+                # fill fields omitted by older native collectors.
+                owned.setdefault("owner_handle", owner_handle)
+                owned.setdefault("space", "block")
+                normalized_entities.append(
+                    _entity_from_native(owned, source_block))
+            bd["def_entities"] = normalized_entities
             assign_stable_entity_identity(bd["def_entities"])
         out.append(bd)
     return out
@@ -1399,21 +1512,49 @@ def build_ir_from_database_graph(graph_result: dict, source_meta: dict) -> dict:
     if "layers" not in symbol_tables:
         symbol_tables = {**symbol_tables, "layers": []}
 
-    # block_references projection from INSERT entities (convenience index).
+    block_definitions = _normalize_block_definitions(
+        graph_result.get("block_definitions"), source_block)
+
+    # block_references is a convenience index over every normalized INSERT,
+    # including INSERTs owned by nested block definitions. Handles are global
+    # within one DWG, so de-duplicate a collector that supplies both inlined and
+    # flat copies. Owner_handle preserves the immediate-owner graph edge.
+    projection_entities = list(entities)
+    for block_definition in block_definitions:
+        nested = block_definition.get("def_entities")
+        if isinstance(nested, list):
+            projection_entities.extend(nested)
+
     block_references = []
-    for ent in entities:
+    projected_handles = set()
+    for ent in projection_entities:
         if ent.get("dxf_name") == "INSERT":
+            handle = ent.get("handle", "")
+            if handle and handle in projected_handles:
+                continue
+            if handle:
+                projected_handles.add(handle)
             g = ent.get("geometry", {})
-            block_references.append({
-                "handle": ent["handle"],
+            projection = {
+                "handle": handle,
                 "block_name": g.get("block_name", ""),
-                "block_record_handle": ent.get("block_record_handle", ""),
+                "block_record_handle": g.get(
+                    "block_record_handle", ent.get("block_record_handle", "")),
+                "owner_handle": ent.get("owner_handle", ""),
                 "space": ent.get("space", "model"),
                 "layer": ent.get("layer", ""),
                 "insertion_point": g.get("position", [0.0, 0.0, 0.0]),
                 "scale": g.get("scale", [1.0, 1.0, 1.0]),
                 "rotation": g.get("rotation", 0.0),
-            })
+            }
+            for key in (
+                    "normal", "attributes", "definition_to_owner_transform",
+                    "transform_convention", "instance_semantics"):
+                if key in g:
+                    projection[key] = g[key]
+            if "xclip" in ent:
+                projection["xclip"] = ent["xclip"]
+            block_references.append(projection)
         if ent.get("xdata"):
             _mark_present("xdata")
         if ent.get("extension_dictionary_handle"):
@@ -1437,6 +1578,7 @@ def build_ir_from_database_graph(graph_result: dict, source_meta: dict) -> dict:
         "errors": errors,
         "coverage": {
             "modelspace_count_from_native": asserted_model,
+            "paperspace_count_from_native": asserted_paper,
             "realized_entity_count": entity_count,
             "match": (asserted is None) or (asserted == entity_count),
             "sections_present": sections_present,
@@ -1460,8 +1602,7 @@ def build_ir_from_database_graph(graph_result: dict, source_meta: dict) -> dict:
         "source": source,
         "database": graph_result.get("database") or {"header_vars": {}},
         "symbol_tables": symbol_tables,
-        "block_definitions": _normalize_block_definitions(
-            graph_result.get("block_definitions"), source_block),
+        "block_definitions": block_definitions,
         "block_references": block_references,
         "xrefs": graph_result.get("xrefs") or [],
         "dictionaries": graph_result.get("dictionaries") or [],
@@ -1471,6 +1612,15 @@ def build_ir_from_database_graph(graph_result: dict, source_meta: dict) -> dict:
         "entities": entities,
         "diagnostics": diagnostics,
     }
+    if "producer_profile" in graph_result:
+        ir["producer_profile"] = graph_result["producer_profile"]
+    if "profile_version" in graph_result:
+        # Raw native key is profile_version. The normalized IR intentionally has
+        # one name only; do not leak a second profile_version alias.
+        ir["producer_profile_version"] = graph_result["profile_version"]
+    if "numeric_contract" in graph_result:
+        ir["numeric_contract"] = graph_result["numeric_contract"]
+
     btr = graph_result.get("block_table_records")
     if btr is not None:
         ir["symbol_tables"]["block_table_records"] = btr
@@ -1623,6 +1773,106 @@ def _explicit_finite_point3(value):
     return point
 
 
+def _e212_profile_semantic_errors(ir: dict) -> list[str]:
+    """Cross-field checks draft-07 cannot express (no standard ``$data``).
+
+    The profile duplicates INSERT targets for v1 compatibility, and it carries
+    independent native member counts for polylines and block definitions. These
+    values are truth receipts, not hints: every duplicate/count must agree with
+    the realized normalized payload or conformance fails closed.
+    """
+    if ir.get("producer_profile") != E212_NATIVE_SCENE_PROFILE:
+        return []
+
+    errors = []
+    top_entities = list(ir.get("entities") or [])
+    entities = list(top_entities)
+    coverage = (ir.get("diagnostics") or {}).get("coverage") or {}
+    actual_model_count = sum(
+        1 for entity in top_entities
+        if isinstance(entity, dict) and entity.get("space") == "model")
+    actual_paper_count = sum(
+        1 for entity in top_entities
+        if isinstance(entity, dict) and entity.get("space") == "paper")
+    for key, actual in (
+            ("modelspace_count_from_native", actual_model_count),
+            ("paperspace_count_from_native", actual_paper_count)):
+        if coverage.get(key) != actual:
+            errors.append(
+                "%s mismatch: %r != realized %r"
+                % (key, coverage.get(key), actual))
+    diagnostics = ir.get("diagnostics") or {}
+    if diagnostics.get("entity_count") != len(top_entities):
+        errors.append(
+            "diagnostics.entity_count mismatch: %r != len(entities) %r"
+            % (diagnostics.get("entity_count"), len(top_entities)))
+    if diagnostics.get("realized_entity_count") != len(top_entities):
+        errors.append(
+            "diagnostics.realized_entity_count mismatch: %r != len(entities) %r"
+            % (diagnostics.get("realized_entity_count"), len(top_entities)))
+    if coverage.get("realized_entity_count") != len(top_entities):
+        errors.append(
+            "diagnostics.coverage.realized_entity_count mismatch: %r != len(entities) %r"
+            % (coverage.get("realized_entity_count"), len(top_entities)))
+
+    actual_by_type = {}
+    for entity in top_entities:
+        if not isinstance(entity, dict):
+            continue
+        dxf_name = entity.get("dxf_name")
+        actual_by_type[dxf_name] = actual_by_type.get(dxf_name, 0) + 1
+    if diagnostics.get("entities_by_type") != actual_by_type:
+        errors.append(
+            "diagnostics.entities_by_type mismatch: %r != realized %r"
+            % (diagnostics.get("entities_by_type"), actual_by_type))
+
+    layouts = ir.get("layouts")
+    model_layout_count = (
+        sum(
+            1 for layout in layouts
+            if isinstance(layout, dict) and layout.get("name") == "Model"
+        )
+        if isinstance(layouts, list) else 0
+    )
+    if model_layout_count != 1:
+        errors.append(
+            "layouts must contain exactly one Model row: found %r"
+            % model_layout_count)
+
+    for definition in ir.get("block_definitions") or []:
+        if not isinstance(definition, dict):
+            continue
+        nested = definition.get("def_entities")
+        if isinstance(nested, list):
+            entities.extend(nested)
+            if definition.get("entity_count") != len(nested):
+                errors.append(
+                    "block definition %r entity_count mismatch: %r != len(def_entities) %r"
+                    % (definition.get("handle"), definition.get("entity_count"), len(nested)))
+
+    for entity in entities:
+        if not isinstance(entity, dict):
+            continue
+        geometry = entity.get("geometry")
+        if not isinstance(geometry, dict):
+            continue
+        if geometry.get("kind") == "block_reference":
+            top_target = entity.get("block_record_handle")
+            geometry_target = geometry.get("block_record_handle")
+            if top_target != geometry_target:
+                errors.append(
+                    "entity %r INSERT block_record_handle mismatch: top-level %r != geometry %r"
+                    % (entity.get("handle"), top_target, geometry_target))
+        if (entity.get("dxf_name") == "LWPOLYLINE"
+                or entity.get("class") == "AcDb2dPolyline"):
+            vertices = geometry.get("vertices")
+            if isinstance(vertices, list) and geometry.get("vertex_count") != len(vertices):
+                errors.append(
+                    "entity %r vertex_count mismatch: %r != len(vertices) %r"
+                    % (entity.get("handle"), geometry.get("vertex_count"), len(vertices)))
+    return errors
+
+
 def _validate_ir(ir: dict):
     """Validate an IR dict against the schema if jsonschema is importable.
 
@@ -1640,9 +1890,19 @@ def _validate_ir(ir: dict):
             f"{'/'.join(str(p) for p in e.path)}: {e.message}"
             for e in sorted(validator.iter_errors(ir), key=lambda e: list(e.path))
         ]
+        errors.extend(_e212_profile_semantic_errors(ir))
         return (len(errors) == 0, "jsonschema", errors[:20])
     except ImportError:
-        # structural fallback
+        # The legacy fallback is intentionally shallow. It cannot validate the
+        # closed E212 matrices, planes, instance semantics, or receipt union, so
+        # accepting that profile here would be fake conformance.
+        if ir.get("producer_profile") == E212_NATIVE_SCENE_PROFILE:
+            return (
+                False,
+                "structural",
+                ["E212 profile requires jsonschema; structural fallback is insufficient"],
+            )
+        # structural fallback for legacy/unprofiled IR only
         for key in ("schema", "source", "database", "symbol_tables", "entities", "diagnostics"):
             if key not in ir:
                 errors.append(f"missing top-level key: {key}")
@@ -1698,6 +1958,7 @@ def _validate_ir(ir: dict):
             if isinstance(bd, dict) and isinstance(bd.get("origin"), dict):
                 errors.append(
                     "block_definitions[].origin is an object, expected a point array")
+        errors.extend(_e212_profile_semantic_errors(ir))
         return (len(errors) == 0, "structural", errors[:20])
 
 

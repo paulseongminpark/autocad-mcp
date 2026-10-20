@@ -20,6 +20,7 @@ Current producer version: `1.1.0`
 
 | version | change | compatibility |
 |---|---|---|
+| `1.1.0` + E212 profile `1.0.0` | Add the optional pinned native scene-v2 profile: authoritative INSERT transforms/instance semantics, planar owner-frame metadata, population coverage, and an honest realized-extent receipt union. | Additive profile; documents without `producer_profile` retain the original v1 rules. |
 | `1.1.0` | Add additive entity identity fields `stable_id` and `stable_id_ordinal`; document float normalization (`1e-6`) and viewport-managed exclusions (`center/height/width`). | Backward-compatible minor bump; existing consumers still read the v1 schema/id unchanged. |
 | `1.0.0` | Initial producer version for the documented v1 graph IR surface. | Baseline. |
 
@@ -65,6 +66,9 @@ not an exhaustive closed shape.
 {
   "schema": "ariadne.dwg_graph_ir.v1",   // required, const
   "ir_version": "1.0.0",                  // optional producer semver
+  "producer_profile": "ariadne.dwg_graph_ir.e212_native_scene_v2", // optional pinned semantics profile
+  "producer_profile_version": "1.0.0",     // required when producer_profile is present
+  "numeric_contract": "binary64_max_digits10;row_major;column_vector;right_handed",
   "coverage_level": "native_full",        // declared completeness tier (Section 5)
   "source": { ... },                      // required — provenance (Section 3)
   "database": { ... },                    // required — drawing-level state (Section 4.1)
@@ -91,6 +95,12 @@ not an exhaustive closed shape.
 `diagnostics`. Everything else is populated as the coverage level allows; absence of an
 optional section means "not extracted at this coverage level", which MUST be reflected in
 `diagnostics.coverage.sections_skipped`.
+
+The native `inspect.database.graph` result uses the raw key `profile_version`. The IR builder
+maps it to `producer_profile_version`; normalized IR MUST NOT emit a second `profile_version`
+alias. When `producer_profile` is `ariadne.dwg_graph_ir.e212_native_scene_v2`, the profile
+version and numeric contract above are required, as is the realized-extent receipt in
+`database`.
 
 ---
 
@@ -137,6 +147,23 @@ Drawing-wide settings that scope the whole file.
 - `insbase` — `INSBASE` system variable: the insertion base point used when this drawing is
   inserted as a block/xref elsewhere (`$defs.point3`, `[x,y,z]`).
 - `extents` — `extmin`/`extmax` (EXTMIN/EXTMAX) and `limmin`/`limmax` (LIMMIN/LIMMAX).
+  These database header values are not proof of the exact realized population extent.
+- `modelspace_realized_extent_receipt` — the E212 population-bound extent truth receipt. Until
+  the native producer implements exact population extent, it emits this payload exactly and
+  omits all unavailable bounds, counts, and hashes:
+
+  ```json
+  {"status":"BLOCKED","reason_code":"NATIVE_EXACT_POPULATION_EXTENT_NOT_IMPLEMENTED","algorithm_id":"cadagent.e212_native_scene_v2.extent.unavailable.v1","block_expanded":false,"paper_included":false,"off_frozen_included_without_reading_style":true,"xref_mode":"none"}
+  ```
+
+  `PASS` is a distinct closed schema. It requires `population_contract_sha256`,
+  `model_btr_handle`, `bounds_xyz` (`[minX,minY,minZ,maxX,maxY,maxZ]`),
+  `expected_realized_entity_events_total`, `expected_realized_leaf_count`,
+  `population_digest_sha256`, `realized_event_extent_ledger_sha256`, reserved
+  `algorithm_id: "cadagent.e212_native_scene_v2.extent.exact.v1"`,
+  `block_expanded: true`, `paper_included: false`,
+  `off_frozen_included_without_reading_style: true`, and `xref_mode` (`none` or
+  `hash_bound`). A producer MUST NOT turn a missing measurement into zero or an empty hash.
 - `ucs` — current UCS origin/axes at extraction time.
 - `codepage` — `DWGCODEPAGE`/code page; relevant for non-ASCII layer names (e.g. Korean
   `설비OPEN`).
@@ -175,12 +202,38 @@ exists, the field is absent.
   1. **Inlined** — `def_entities[]` carries the geometry (same `entity` shape as top-level).
   2. **Referenced** — definition entities live in the top-level `entities[]` array with
      `owner_handle == this BTR handle` and `space == "block"`.
+  The E212 scene-v2 profile requires the inlined form plus `handle`, `name`, `origin`, and
+  independent `entity_count`; the public conformance gate requires
+  `entity_count == len(def_entities)`. Its envelope also requires `ir_version`,
+  `coverage_level`, `block_definitions`, `block_references`, `xrefs`, `layouts`, and complete
+  BTR headers (`handle`, name/classification flags, origin, and entity count).
 - `block_references[]` (`$defs.block_reference`) — an **optional projection** of all `INSERT`
   entities with resolved placement, for consumers that walk instance trees. INSERTs also
   appear in `entities[]`; the projection shares the same `handle`. Fields: `block_name`,
   `block_record_handle`, `space`, `layer`, `insertion_point`, `scale` (X/Y/Z),
   `rotation` (**radians** — see Section 7), `normal` (OCS), `transform` (optional 4×4
   row-major matrix, 16 numbers), `is_dynamic`, `attributes[]` (ATTRIB `tag`/`value`/`handle`).
+
+Under `ariadne.dwg_graph_ir.e212_native_scene_v2`, each INSERT's geometry carries the
+referenced/evaluated graph target as `block_record_handle` (the top-level entity copy remains
+required for compatibility) and `definition_to_owner_transform`, the 16 entries of
+`AcDbBlockReference::blockTransform()` serialized row-major without decomposition or
+recomposition. `position`, `scale`, `rotation`, and `normal` remain required audit fields;
+they are not a substitute for the authoritative matrix. Its convention string is exactly
+`row_major; q=M@[x,y,z,1]; definition_to_immediate_owner; btr_origin_included_once`.
+The matrix maps referenced-definition coordinates to the directly owning BTR and includes the
+referenced BTR origin exactly once. It is a base-cell transform for MINSERT, not a flattened
+array transform. Draft-07 cannot express equality between two arbitrary properties, so the
+builder's public conformance gate additionally asserts that the top-level and geometry
+`block_record_handle` values are equal; the canonicalizer repeats that check.
+
+`instance_semantics` is closed and explicit: `mode` is `STATIC_SINGLE`, `MINSERT`, `DYNAMIC`,
+`ANNOTATIVE`, or `OTHER`; row/column counts and spacing are always present;
+`dynamic_evaluated_btr_handle` is a handle or explicit null; `xclip` is `NONE` or `PRESENT`;
+and `xref_source_sha256` is explicit null in profile `1.0.0`. The first scene-v2 admission
+accepts only non-xref `STATIC_SINGLE` instances with `1 × 1`, zero replication semantics,
+`xclip: NONE`, and a null dynamic handle. Other modes are represented faithfully but must be
+blocked by that admission gate rather than approximated.
 
 ### 4.4 `xrefs[]` (`$defs.xref_record`)
 
@@ -260,7 +313,7 @@ with no paper-space geometry (or a native collector that predates this) simply r
 | `color_method` | How the color is stored (`bylayer` / `byblock` / `bycolor` / `byaci`); `bycolor` ⇒ `true_color` present. |
 | `true_color` | Optional `{r,g,b}` (each `0-255`) explicit RGB color, present only when `color_method == "bycolor"`; omitted (not null) otherwise. Excluded from `stable_id`. |
 | `lineweight` | Lineweight in 1/100 mm, or the sentinels `-1` = ByLayer / `-2` = ByBlock / `-3` = Default. Display attribute — excluded from `stable_id`. |
-| `xclip{}` | XCLIP spatial-filter clip on a clipped `AcDbBlockReference` (`ACAD_FILTER`/`SPATIAL` on the reference's own extension dictionary): `enabled`, `inverted`, `elevation`, `front_clip`, `back_clip`, `normal`, `boundary` (verbatim CLIP-SPACE 2D vertices; 2 points = rectangular window), `boundary_block` (block-local — what e.g. ezdxf `set_block_clipping_path` needs; 2-point windows expanded to 4 corners before transform), `boundary_wcs` (WCS, 3D), `inv_block_xform` (row-major 4×4, clip→block). Display attribute — excluded from `stable_id`. |
+| `xclip{}` | XCLIP spatial-filter clip on a clipped `AcDbBlockReference` (`ACAD_FILTER`/`SPATIAL` on the reference's own extension dictionary): `enabled`, `inverted`, `elevation`, `front_clip`, `back_clip`, `normal`, `boundary` (verbatim CLIP-SPACE 2D vertices; 2 points = rectangular window), `boundary_block` (block-local — what e.g. ezdxf `set_block_clipping_path` needs; 2-point windows expanded to 4 corners before transform), `boundary_wcs` (WCS, 3D), `inv_block_xform` (row-major 4×4, clip→block). Display attribute — excluded from `stable_id`. A missing `ACAD_FILTER` or `SPATIAL` key proves no clip; dictionary/object/getDefinition failures abort the graph and can never become `xclip: NONE`. |
 | `bbox` | Axis-aligned box `[minX,minY,minZ,maxX,maxY,maxZ]` (`$defs.bbox`); `[]` = no bbox computed. |
 | `geometry` | Coordinate payload (`$defs.geometry`, below). |
 | `xdata[]` | XDATA blocks per registered app (`$defs.xdata_block`: `app` + `items[]` of resbuf). |
@@ -281,6 +334,23 @@ Common geometry fields: `start`, `end`, `center`, `position`, `alignment_point`,
 `vertices[]` (each `{point, bulge, start_width, end_width}` for polyline family),
 `text`, `height`, `rotation`, `block_name`, `scale`, `dimension_type`, `measurement`,
 `control_points[]`, `degree`, `loops[]` (hatch boundaries), `pattern_name`.
+
+Under the E212 native scene-v2 profile, ARC, CIRCLE, LWPOLYLINE, and admitted legacy 2D
+POLYLINE geometry carries `coordinates_frame: "immediate_owner"` and
+`plane_basis_owner = {origin,x_axis,y_axis,normal,handedness,positive_angle}`. The fixed
+orientation literals are `x_cross_y_equals_normal` and `x_toward_y_radians`. The basis is
+AutoCAD's OCS/arbitrary-axis basis expressed in the directly owning BTR. ARC angles therefore
+mean positive radians from `x_axis` toward `y_axis`. `legacy_polyline_type` is explicit null
+for ARC/CIRCLE/LWPOLYLINE and an ObjectARX enum name (`k2dSimplePoly`,
+`k2dFitCurvePoly`, `k2dQuadSplinePoly`, or `k2dCubicSplinePoly`) for a legacy 2D POLYLINE.
+The producer uses `AcDb2dPolyline::vertexPosition()` so its emitted vertex points are already
+in the immediate-owner frame. Structural audit fields are required by kind: LINE has
+`start`/`end`; ARC has `center`/`radius`/both angles/`normal`; CIRCLE has
+`center`/`radius`/`normal`; and LWPOLYLINE plus legacy 2D POLYLINE have
+`closed`/`vertex_count`/`vertices`/`elevation`/`normal`. `vertex_count` is the independent
+native `numVerts()` or iterator-member count and must exactly equal `len(vertices)` in the
+public conformance gate. LINE endpoints are full 3D immediate-owner
+coordinates and do not need an OCS plane basis.
 
 For `ellipse`, the native producer normalizes `normal` without changing its sign, projects
 `major_axis` onto the plane perpendicular to that exact emitted normal, and restores the
@@ -356,6 +426,18 @@ The level is a **promise about what was attempted**, not a quality score. A `geo
 IR with a passing truth gate is fully valid for geometry consumers; it simply does not carry
 symbol-table or dictionary depth. Whatever a level omits MUST appear in
 `diagnostics.coverage.sections_skipped`.
+
+For a successful E212 native scene-v2 result,
+`diagnostics.coverage.section_status.population_entities` is `implemented`. This says every
+model/paper/definition iterator member opened and every required supported-family geometry
+accessor succeeded. Entity, vertex, layout, BTR, definition, or XCLIP access/enumeration failure
+makes the native operation `status: "error"` and raw `coverage.population_entities: "error"`;
+such a result is not normalized as conforming IR. Normalized coverage also requires the
+independent `modelspace_count_from_native` and `paperspace_count_from_native` counters (zero
+is explicit), so consumers can partition and verify paper-space BTR inventory. It does not
+claim exact realized extents, xref expansion, or proprietary custom-object decoding. Those truths remain separate: the
+extent receipt is `BLOCKED` until implemented, and `proxy_objects` remains `partial` where deep
+custom decoding is unavailable.
 
 ---
 
@@ -462,6 +544,9 @@ A producer SHOULD verify before emitting:
    {unsupported, proxy}`, and is counted in `coverage.proxy_or_undecoded_count`.
 8. `source.dwg_path` is a staged copy whenever `source.original_path` is set; the original was
    not written.
+9. When the E212 native scene-v2 profile is present, validate its exact version/numeric
+   contract, INSERT matrices/instance semantics, planar coordinate metadata, explicit nulls,
+   population coverage, and the `BLOCKED`-or-fully-populated-`PASS` extent receipt union.
 
 ---
 
@@ -596,8 +681,10 @@ that every layer name round-trips through UTF-8 losslessly.
   An unmapped class passes through as `class == native name`, `dxf_name == native name`,
   `geometry.kind == "unsupported"`, `source.decoded == false` — counted in
   `coverage.proxy_or_undecoded_count` (no-fake-success).
-- `block_references[]` is a **convenience projection** of the INSERT entities, not an independent
-  source of truth; every INSERT also appears in `entities[]` under the same `handle`.
+- `block_references[]` is a **convenience projection** of every normalized INSERT, including
+  `block_definitions[].def_entities[]`. It is not an independent source of truth. Each projection
+  preserves `owner_handle`; a globally unique handle prevents duplicate projection when a collector
+  supplies both a flat and an inlined copy.
 - `database`, `symbol_tables`, `block_definitions`, `layouts`, `xrefs`, `dictionaries`, `xrecords`
   are carried through from the native result largely verbatim (the schema is additive), with
   `symbol_tables.layers` guaranteed present (possibly empty).

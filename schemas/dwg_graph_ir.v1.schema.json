@@ -22,6 +22,19 @@
       "type": "string",
       "description": "Optional semantic version of the IR producer, e.g. 1.0.0."
     },
+    "producer_profile": {
+      "type": "string",
+      "const": "ariadne.dwg_graph_ir.e212_native_scene_v2",
+      "description": "Pinned native scene-semantics profile. Its presence activates the profile metadata and receipt requirements below."
+    },
+    "producer_profile_version": {
+      "type": "string",
+      "const": "1.0.0"
+    },
+    "numeric_contract": {
+      "type": "string",
+      "const": "binary64_max_digits10;row_major;column_vector;right_handed"
+    },
     "coverage_level": {
       "type": "string",
       "description": "Declared completeness tier of this IR document. native_full = native/managed full traversal (header+symbol tables+blocks+entities+xdata+dictionaries). dbx_full = ObjectDBX side-database traversal. dxf_geometry = DXF-derived geometry-only (no live runtime objects/proxies). geometry_only = entities + bbox without symbol-table depth. partial = explicitly incomplete (see diagnostics.errors).",
@@ -88,7 +101,7 @@
         },
         "extents": {
           "type": "object",
-          "description": "Drawing extents (EXTMIN/EXTMAX) and limits (LIMMIN/LIMMAX).",
+          "description": "Drawing extents (EXTMIN/EXTMAX) and limits (LIMMIN/LIMMAX). These header values are not the E212 realized-population extent receipt.",
           "additionalProperties": true,
           "properties": {
             "extmin": { "$ref": "#/$defs/point3" },
@@ -96,6 +109,9 @@
             "limmin": { "$ref": "#/$defs/point2" },
             "limmax": { "$ref": "#/$defs/point2" }
           }
+        },
+        "modelspace_realized_extent_receipt": {
+          "$ref": "#/$defs/modelspace_realized_extent_receipt"
         },
         "ucs": {
           "type": "object",
@@ -288,6 +304,119 @@
       "$ref": "#/$defs/diagnostics"
     }
   },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "producer_profile": { "const": "ariadne.dwg_graph_ir.e212_native_scene_v2" }
+        },
+        "required": ["producer_profile"]
+      },
+      "then": {
+        "required": ["ir_version", "producer_profile_version", "numeric_contract", "coverage_level", "block_definitions", "block_references", "xrefs", "layouts"],
+        "properties": {
+          "ir_version": { "const": "1.1.0" },
+          "coverage_level": { "const": "native_full" },
+          "source": {
+            "required": ["format", "sha256"],
+            "properties": {
+              "format": { "const": "dwg" },
+              "sha256": {
+                "type": "string",
+                "minLength": 64,
+                "maxLength": 64,
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            }
+          },
+          "database": {
+            "required": ["insbase", "extents", "units", "header_vars", "modelspace_realized_extent_receipt"],
+            "properties": {
+              "units": {
+                "required": ["insunits"],
+                "properties": {
+                  "insunits": {
+                    "type": "integer",
+                    "enum": [1, 2, 4, 5, 6]
+                  }
+                }
+              }
+            }
+          },
+          "symbol_tables": {
+            "required": ["block_table_records"],
+            "properties": {
+              "block_table_records": {
+                "items": {
+                  "required": ["handle", "name", "is_layout", "is_anonymous", "is_xref", "origin", "entity_count"]
+                }
+              }
+            }
+          },
+          "layouts": {
+            "items": {
+              "required": ["name", "block_table_record_handle"]
+            },
+            "contains": {
+              "type": "object",
+              "required": ["name"],
+              "properties": {
+                "name": { "const": "Model" }
+              }
+            }
+          },
+          "entities": {
+            "items": { "$ref": "#/$defs/e212_scene_v2_entity_semantics" }
+          },
+          "block_definitions": {
+            "items": {
+              "required": ["handle", "name", "origin", "entity_count", "def_entities"],
+              "properties": {
+                "def_entities": {
+                  "items": { "$ref": "#/$defs/e212_scene_v2_entity_semantics" }
+                }
+              }
+            }
+          },
+          "block_references": {
+            "items": { "$ref": "#/$defs/e212_scene_v2_block_reference_semantics" }
+          },
+          "diagnostics": {
+            "required": ["entity_count", "realized_entity_count", "count_scope", "entities_by_type", "coverage"],
+            "properties": {
+              "entities_by_type": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "coverage": {
+                "required": ["modelspace_count_from_native", "paperspace_count_from_native", "realized_entity_count", "match", "proxy_or_undecoded_count", "section_status"],
+                "properties": {
+                  "realized_entity_count": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "match": { "type": "boolean" },
+                  "proxy_or_undecoded_count": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "section_status": {
+                    "required": ["population_entities", "proxy_objects"],
+                    "properties": {
+                      "population_entities": { "const": "implemented" }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
   "$defs": {
     "handle": {
       "type": "string",
@@ -306,6 +435,215 @@
       "minItems": 3,
       "maxItems": 3,
       "items": { "type": "number" }
+    },
+    "plane_basis_owner": {
+      "type": "object",
+      "description": "A right-handed planar basis expressed in the entity's immediate owner BTR coordinates. Positive angular parameters rotate x_axis toward y_axis in radians.",
+      "additionalProperties": false,
+      "required": ["origin", "x_axis", "y_axis", "normal", "handedness", "positive_angle"],
+      "properties": {
+        "origin": { "$ref": "#/$defs/point3" },
+        "x_axis": { "$ref": "#/$defs/point3" },
+        "y_axis": { "$ref": "#/$defs/point3" },
+        "normal": { "$ref": "#/$defs/point3" },
+        "handedness": { "const": "x_cross_y_equals_normal" },
+        "positive_angle": { "const": "x_toward_y_radians" }
+      }
+    },
+    "instance_semantics": {
+      "type": "object",
+      "description": "Native INSERT instance classification for the E212 scene-v2 profile. The matrix is the base-cell transform for MINSERT; row/column replication is separate and never silently flattened.",
+      "additionalProperties": false,
+      "required": ["mode", "row_count", "column_count", "row_spacing", "column_spacing", "dynamic_evaluated_btr_handle", "xclip", "xref_source_sha256"],
+      "properties": {
+        "mode": { "enum": ["STATIC_SINGLE", "MINSERT", "DYNAMIC", "ANNOTATIVE", "OTHER"] },
+        "row_count": { "type": "integer", "minimum": 1 },
+        "column_count": { "type": "integer", "minimum": 1 },
+        "row_spacing": { "type": "number" },
+        "column_spacing": { "type": "number" },
+        "dynamic_evaluated_btr_handle": {
+          "oneOf": [
+            { "$ref": "#/$defs/handle" },
+            { "type": "null" }
+          ]
+        },
+        "xclip": { "enum": ["NONE", "PRESENT"] },
+        "xref_source_sha256": { "type": "null", "description": "Profile 1.0.0 does not admit xref instances and therefore never fabricates an xref content hash." }
+      }
+    },
+    "modelspace_realized_extent_receipt": {
+      "description": "Truth receipt for the realized model-space population extent. BLOCKED is an exact no-measurement payload; PASS is a separate fully populated, digest-bound shape.",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "reason_code", "algorithm_id", "block_expanded", "paper_included", "off_frozen_included_without_reading_style", "xref_mode"],
+          "properties": {
+            "status": { "const": "BLOCKED" },
+            "reason_code": { "const": "NATIVE_EXACT_POPULATION_EXTENT_NOT_IMPLEMENTED" },
+            "algorithm_id": { "const": "cadagent.e212_native_scene_v2.extent.unavailable.v1" },
+            "block_expanded": { "const": false },
+            "paper_included": { "const": false },
+            "off_frozen_included_without_reading_style": { "const": true },
+            "xref_mode": { "const": "none" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "population_contract_sha256", "model_btr_handle", "bounds_xyz", "expected_realized_entity_events_total", "expected_realized_leaf_count", "population_digest_sha256", "realized_event_extent_ledger_sha256", "block_expanded", "paper_included", "off_frozen_included_without_reading_style", "xref_mode", "algorithm_id"],
+          "properties": {
+            "status": { "const": "PASS" },
+            "population_contract_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+            "model_btr_handle": { "$ref": "#/$defs/handle" },
+            "bounds_xyz": {
+              "type": "array",
+              "description": "[minX, minY, minZ, maxX, maxY, maxZ] over the exact realized population.",
+              "minItems": 6,
+              "maxItems": 6,
+              "items": { "type": "number" }
+            },
+            "expected_realized_entity_events_total": { "type": "integer", "minimum": 0 },
+            "expected_realized_leaf_count": { "type": "integer", "minimum": 0 },
+            "population_digest_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+            "realized_event_extent_ledger_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+            "block_expanded": { "const": true },
+            "paper_included": { "const": false },
+            "off_frozen_included_without_reading_style": { "const": true },
+            "xref_mode": { "enum": ["none", "hash_bound"] },
+            "algorithm_id": { "const": "cadagent.e212_native_scene_v2.extent.exact.v1" }
+          }
+        }
+      ]
+    },
+    "e212_scene_v2_entity_semantics": {
+      "type": "object",
+      "allOf": [
+        {
+          "if": {
+            "anyOf": [
+              { "required": ["dxf_name"], "properties": { "dxf_name": { "const": "INSERT" } } },
+              { "required": ["class"], "properties": { "class": { "enum": ["AcDbBlockReference", "AcDbMInsertBlock"] } } }
+            ]
+          },
+          "then": {
+            "required": ["block_record_handle"],
+            "properties": {
+              "dxf_name": { "const": "INSERT" },
+              "geometry": {
+                "required": ["kind", "block_record_handle", "position", "scale", "rotation", "normal", "definition_to_owner_transform", "transform_convention", "instance_semantics"],
+                "properties": { "kind": { "const": "block_reference" } }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "anyOf": [
+              { "required": ["dxf_name"], "properties": { "dxf_name": { "const": "LINE" } } },
+              { "required": ["class"], "properties": { "class": { "const": "AcDbLine" } } }
+            ]
+          },
+          "then": {
+            "properties": {
+              "dxf_name": { "const": "LINE" },
+              "geometry": {
+                "required": ["kind", "start", "end"],
+                "properties": { "kind": { "const": "line" } }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "anyOf": [
+              { "required": ["dxf_name"], "properties": { "dxf_name": { "const": "ARC" } } },
+              { "required": ["class"], "properties": { "class": { "const": "AcDbArc" } } }
+            ]
+          },
+          "then": {
+            "properties": {
+              "dxf_name": { "const": "ARC" },
+              "geometry": {
+                "required": ["kind", "center", "radius", "start_angle", "end_angle", "normal", "coordinates_frame", "plane_basis_owner", "legacy_polyline_type"],
+                "properties": {
+                  "kind": { "const": "arc" },
+                  "legacy_polyline_type": { "const": null }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "anyOf": [
+              { "required": ["dxf_name"], "properties": { "dxf_name": { "const": "CIRCLE" } } },
+              { "required": ["class"], "properties": { "class": { "const": "AcDbCircle" } } }
+            ]
+          },
+          "then": {
+            "properties": {
+              "dxf_name": { "const": "CIRCLE" },
+              "geometry": {
+                "required": ["kind", "center", "radius", "normal", "coordinates_frame", "plane_basis_owner", "legacy_polyline_type"],
+                "properties": {
+                  "kind": { "const": "circle" },
+                  "legacy_polyline_type": { "const": null }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "anyOf": [
+              { "required": ["dxf_name"], "properties": { "dxf_name": { "const": "LWPOLYLINE" } } },
+              { "required": ["class"], "properties": { "class": { "const": "AcDbPolyline" } } }
+            ]
+          },
+          "then": {
+            "properties": {
+              "dxf_name": { "const": "LWPOLYLINE" },
+              "geometry": {
+                "required": ["kind", "closed", "vertex_count", "vertices", "elevation", "normal", "coordinates_frame", "plane_basis_owner", "legacy_polyline_type"],
+                "properties": {
+                  "kind": { "const": "lwpolyline" },
+                  "legacy_polyline_type": { "const": null }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": ["class"],
+            "properties": { "class": { "const": "AcDb2dPolyline" } }
+          },
+          "then": {
+            "properties": {
+              "dxf_name": { "const": "POLYLINE" },
+              "geometry": {
+                "required": ["kind", "coordinates_frame", "plane_basis_owner", "legacy_polyline_type", "closed", "vertex_count", "vertices", "elevation", "normal"],
+                "properties": {
+                  "kind": { "const": "polyline" },
+                  "legacy_polyline_type": {
+                    "enum": ["k2dSimplePoly", "k2dFitCurvePoly", "k2dQuadSplinePoly", "k2dCubicSplinePoly"]
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "e212_scene_v2_block_reference_semantics": {
+      "type": "object",
+      "required": ["owner_handle", "space", "insertion_point", "scale", "rotation", "block_record_handle", "definition_to_owner_transform", "transform_convention", "instance_semantics"],
+      "properties": {
+        "definition_to_owner_transform": { "$ref": "#/$defs/transform4x4" },
+        "transform_convention": { "const": "row_major; q=M@[x,y,z,1]; definition_to_immediate_owner; btr_origin_included_once" },
+        "instance_semantics": { "$ref": "#/$defs/instance_semantics" }
+      }
     },
     "bbox": {
       "type": "array",
@@ -471,6 +809,7 @@
         "handle": { "$ref": "#/$defs/handle", "description": "Handle of the owning BTR." },
         "name": { "type": "string" },
         "origin": { "$ref": "#/$defs/point3" },
+        "entity_count": { "type": "integer", "minimum": 0, "description": "Independent owner-BTR member count; E212 conformance requires equality with len(def_entities)." },
         "bbox": { "$ref": "#/$defs/bbox" },
         "attribute_definitions": {
           "type": "array",
@@ -493,6 +832,7 @@
         "handle": { "$ref": "#/$defs/handle" },
         "block_name": { "type": "string" },
         "block_record_handle": { "$ref": "#/$defs/handle" },
+        "owner_handle": { "$ref": "#/$defs/handle", "description": "Immediate owner BTR handle, including nested definition-owned INSERTs." },
         "space": { "$ref": "#/$defs/space" },
         "layer": { "type": "string" },
         "insertion_point": { "$ref": "#/$defs/point3" },
@@ -500,6 +840,9 @@
         "rotation": { "type": "number", "description": "Rotation in radians (or degrees if declared by extractor; document in DWG_GRAPH_IR_SPEC)." },
         "normal": { "$ref": "#/$defs/point3", "description": "Extrusion/normal vector (OCS)." },
         "transform": { "$ref": "#/$defs/transform4x4" },
+        "definition_to_owner_transform": { "$ref": "#/$defs/transform4x4" },
+        "transform_convention": { "const": "row_major; q=M@[x,y,z,1]; definition_to_immediate_owner; btr_origin_included_once" },
+        "instance_semantics": { "$ref": "#/$defs/instance_semantics" },
         "is_dynamic": { "type": "boolean" },
         "attributes": {
           "type": "array",
@@ -750,10 +1093,21 @@
         "start_angle": { "type": "number" },
         "end_angle": { "type": "number" },
         "normal": { "$ref": "#/$defs/point3", "description": "OCS extrusion/normal vector." },
+        "coordinates_frame": {
+          "const": "immediate_owner",
+          "description": "Coordinates in this geometry payload are already expressed in the directly owning BTR's coordinate frame."
+        },
+        "plane_basis_owner": { "$ref": "#/$defs/plane_basis_owner" },
+        "legacy_polyline_type": {
+          "type": ["string", "null"],
+          "enum": [null, "k2dSimplePoly", "k2dFitCurvePoly", "k2dQuadSplinePoly", "k2dCubicSplinePoly"],
+          "description": "AcDb2dPolyline::polyType() enum name. Explicit null for ARC, CIRCLE, and LWPOLYLINE."
+        },
         "closed": { "type": "boolean" },
         "elevation": { "type": "number", "description": "Entity OCS-plane elevation (shared Z-plane): AcDb2dPolyline's elevation, and AcDbHatch's plane elevation (also folded into each polyline-loop vertex's z)." },
         "default_start_width": { "type": "number", "description": "AcDb2dPolyline default/constant start width applied where a vertex's own start_width is 0." },
         "default_end_width": { "type": "number", "description": "AcDb2dPolyline default/constant end width applied where a vertex's own end_width is 0." },
+        "vertex_count": { "type": "integer", "minimum": 0, "description": "Independent native member count for E212 LWPOLYLINE and legacy AcDb2dPolyline. The conformance gate requires exact equality with len(vertices)." },
         "vertices": {
           "type": "array",
           "description": "Ordered vertices for polyline-family geometry. Each vertex is at minimum a point; LWPOLYLINE vertices may carry a bulge.",
@@ -772,7 +1126,16 @@
         "height": { "type": "number" },
         "rotation": { "type": "number" },
         "block_name": { "type": "string", "description": "For block_reference geometry: referenced block name." },
+        "block_record_handle": { "$ref": "#/$defs/handle", "description": "For block_reference geometry: authoritative referenced/evaluated BTR handle used as the instance-graph target." },
         "scale": { "$ref": "#/$defs/point3" },
+        "definition_to_owner_transform": {
+          "$ref": "#/$defs/transform4x4",
+          "description": "Authoritative AcDbBlockReference::blockTransform() serialized row-major. It maps referenced-definition coordinates directly to the immediate owner frame and includes the BTR origin exactly once."
+        },
+        "transform_convention": {
+          "const": "row_major; q=M@[x,y,z,1]; definition_to_immediate_owner; btr_origin_included_once"
+        },
+        "instance_semantics": { "$ref": "#/$defs/instance_semantics" },
         "tag": { "type": "string", "description": "ATTDEF/ATTRIB tag (kind == attribute)." },
         "prompt": { "type": "string", "description": "ATTDEF prompt text shown at insertion time (kind == attribute; ATTDEF only, not present on ATTRIB instances)." },
         "constant": { "type": "boolean", "description": "ATTDEF/ATTRIB constant-mode flag: the value is fixed by the ATTDEF and cannot be overridden per-instance." },
@@ -890,6 +1253,7 @@
         "class": { "type": "string", "description": "Runtime class name (e.g. AcDbLine, AcDbBlockReference)." },
         "dxf_name": { "type": "string", "description": "DXF entity name (e.g. LINE, LWPOLYLINE, INSERT, DIMENSION)." },
         "owner_handle": { "$ref": "#/$defs/handle", "description": "Handle of the owning BTR (model space, paper space, or a block definition). Empty string allowed when owner is not resolved." },
+        "block_record_handle": { "$ref": "#/$defs/handle", "description": "For INSERT: compatibility copy of geometry.block_record_handle; profile validation/canonicalization requires equality." },
         "space": { "$ref": "#/$defs/space" },
         "layout": { "type": "string", "description": "Layout/tab name when space == paper." },
         "layer": { "type": "string" },
@@ -975,6 +1339,20 @@
           "description": "Which IR sections were populated, and at what fidelity. Keys are IR section names (header_vars, layers, block_definitions, xdata, dictionaries, custom_objects, ...); values describe extraction status for that section.",
           "additionalProperties": true,
           "properties": {
+            "modelspace_count_from_native": { "type": "integer", "minimum": 0, "description": "Independent native model-space iterator member count." },
+            "paperspace_count_from_native": { "type": "integer", "minimum": 0, "description": "Independent native count of entities across non-Model layout BTRs." },
+            "section_status": {
+              "type": "object",
+              "description": "Per-section native coverage status. population_entities describes enumeration only and is separate from custom-object decoding and extent computation.",
+              "additionalProperties": {
+                "type": "string",
+                "enum": ["implemented", "partial", "skipped"]
+              },
+              "properties": {
+                "population_entities": { "enum": ["implemented", "partial", "skipped"] },
+                "proxy_objects": { "enum": ["implemented", "partial", "skipped"] }
+              }
+            },
             "sections_present": {
               "type": "array",
               "description": "Names of IR sections this extractor populated.",

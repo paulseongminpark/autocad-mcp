@@ -31,6 +31,8 @@
 #include "dbents.h"
 #include "dbspfilt.h"  // #27: AcDbSpatialFilter (XCLIP clip boundary)
 #include "gemat3d.h"   // #63: AcGeMatrix3d (clip-space -> WCS transform)
+#include "dbdynblk.h"  // E212 Phase A: authoritative dynamic-block instance semantics
+#include "dbAnnotativeObjectPE.h"  // E212 Phase A: annotative INSERT classification
 #include "dbmtext.h"
 #include "dbpl.h"
 #include "dbhatch.h"
@@ -808,6 +810,117 @@ static std::string entityColorJson(AcDbEntity* pEnt)
     return o.str();
 }
 
+// E212 Phase A: serialize the exact ObjectARX matrix without decomposing or
+// recomposing it. AcGe uses column-vector application (`q = M * p`) while the
+// wire stores entry[row][column] in row-major order.
+static double jsonNumberWithoutNegativeZero(double value)
+{
+    return value == 0.0 ? 0.0 : value;
+}
+
+static std::string matrix4x4Json(const AcGeMatrix3d& matrix)
+{
+    for (int row = 0; row < 4; ++row) {
+        for (int column = 0; column < 4; ++column) {
+            if (!std::isfinite(matrix.entry[row][column]))
+                return "null";
+        }
+    }
+
+    std::ostringstream o; o.precision(kJsonDoublePrecision);
+    o << "[";
+    for (int row = 0; row < 4; ++row) {
+        for (int column = 0; column < 4; ++column) {
+            if (row != 0 || column != 0)
+                o << ",";
+            o << jsonNumberWithoutNegativeZero(matrix.entry[row][column]);
+        }
+    }
+    o << "]";
+    return o.str();
+}
+
+static const char* legacyPolylineTypeName(AcDb::Poly2dType type)
+{
+    switch (type) {
+        case AcDb::k2dSimplePoly:      return "k2dSimplePoly";
+        case AcDb::k2dFitCurvePoly:    return "k2dFitCurvePoly";
+        case AcDb::k2dQuadSplinePoly:  return "k2dQuadSplinePoly";
+        case AcDb::k2dCubicSplinePoly: return "k2dCubicSplinePoly";
+        default:                       return nullptr;
+    }
+}
+
+static bool isFinitePoint(const AcGePoint3d& point)
+{
+    return std::isfinite(point.x) && std::isfinite(point.y) && std::isfinite(point.z);
+}
+
+static bool isValidPlaneNormal(const AcGeVector3d& normal)
+{
+    return std::isfinite(normal.x) && std::isfinite(normal.y) &&
+           std::isfinite(normal.z) && !normal.isZeroLength();
+}
+
+// E212 Phase A: admitted planar primitives declare that their coordinate payload
+// already lives in the entity's immediate owner BTR frame. The basis is
+// Autodesk's OCS/arbitrary-axis basis expressed in that owner frame. Therefore
+// ARC angles are unambiguous: positive radians rotate x_axis toward y_axis and
+// x_axis cross y_axis equals normal. A corrupt plane is emitted as null (never a
+// fabricated +Z plane); the v2 canonicalizer blocks it.
+static std::string ownerPlaneMetadataJson(const AcGePoint3d& origin,
+                                          const AcGeVector3d& rawNormal,
+                                          const char* legacyPolylineType)
+{
+    std::ostringstream o; o.precision(kJsonDoublePrecision);
+    o << ",\"coordinates_frame\":\"immediate_owner\"";
+    if (legacyPolylineType != nullptr)
+        o << ",\"legacy_polyline_type\":\"" << legacyPolylineType << "\"";
+    else
+        o << ",\"legacy_polyline_type\":null";
+
+    if (!isFinitePoint(origin) || !isValidPlaneNormal(rawNormal)) {
+        o << ",\"plane_basis_owner\":null";
+        return o.str();
+    }
+
+    const AcGeVector3d normal = rawNormal.normal();
+    const AcGeMatrix3d planeToOwner = AcGeMatrix3d::planeToWorld(normal);
+    AcGeVector3d xAxis(1.0, 0.0, 0.0);
+    AcGeVector3d yAxis(0.0, 1.0, 0.0);
+    xAxis.transformBy(planeToOwner);
+    yAxis.transformBy(planeToOwner);
+    xAxis.normalize();
+    yAxis.normalize();
+
+    o << ",\"plane_basis_owner\":{"
+      << "\"origin\":[" << jsonNumberWithoutNegativeZero(origin.x) << ","
+      << jsonNumberWithoutNegativeZero(origin.y) << ","
+      << jsonNumberWithoutNegativeZero(origin.z) << "]"
+      << ",\"x_axis\":[" << jsonNumberWithoutNegativeZero(xAxis.x) << ","
+      << jsonNumberWithoutNegativeZero(xAxis.y) << ","
+      << jsonNumberWithoutNegativeZero(xAxis.z) << "]"
+      << ",\"y_axis\":[" << jsonNumberWithoutNegativeZero(yAxis.x) << ","
+      << jsonNumberWithoutNegativeZero(yAxis.y) << ","
+      << jsonNumberWithoutNegativeZero(yAxis.z) << "]"
+      << ",\"normal\":[" << jsonNumberWithoutNegativeZero(normal.x) << ","
+      << jsonNumberWithoutNegativeZero(normal.y) << ","
+      << jsonNumberWithoutNegativeZero(normal.z) << "]"
+      << ",\"handedness\":\"x_cross_y_equals_normal\""
+      << ",\"positive_angle\":\"x_toward_y_radians\"}";
+    return o.str();
+}
+
+static std::string ownerPlaneMetadataAtElevationJson(const AcGeVector3d& rawNormal,
+                                                     double elevation,
+                                                     const char* legacyPolylineType)
+{
+    AcGePoint3d origin(0.0, 0.0, elevation);
+    if (isValidPlaneNormal(rawNormal) && std::isfinite(elevation))
+        origin.transformBy(AcGeMatrix3d::planeToWorld(rawNormal.normal()));
+    return ownerPlaneMetadataJson(origin, rawNormal, legacyPolylineType);
+}
+
 // #27: emit a block reference's XCLIP clip boundary. XCLIP is stored as an
 // AcDbSpatialFilter reached through the entity's extension dictionary:
 //   extDict -> "ACAD_FILTER" (a sub-dictionary) -> "SPATIAL" -> AcDbSpatialFilter
@@ -817,31 +930,45 @@ static std::string entityColorJson(AcDbEntity* pEnt)
 // clip definition: boundary points (in the block reference's coordinate space --
 // 2 points = a rectangular window, N points = a polygonal clip), the
 // enabled/inverted flags, the clip-plane normal, and front/back clip distances.
-// Returns "" (no field) when the entity has no spatial filter. dbspfilt.h is
-// included above; dbdict.h (AcDbDictionary) already was.
-static std::string spatialFilterJson(const AcDbObjectId& extDictId)
+// Returns "" (no field) when a completed lookup proves that the entity has no
+// spatial filter. lookupComplete remains false for dictionary/object/accessor
+// failures so callers cannot misclassify an unreadable XCLIP as xclip=NONE.
+// dbspfilt.h is included above; dbdict.h (AcDbDictionary) already was.
+static std::string spatialFilterJson(const AcDbObjectId& extDictId,
+                                     bool& lookupComplete)
 {
+    lookupComplete = false;
     std::ostringstream o; o.precision(kJsonDoublePrecision);
-    if (extDictId.isNull())
+    if (extDictId.isNull()) {
+        lookupComplete = true;
         return o.str();
+    }
     AcDbDictionary* pExtDict = nullptr;
-    if (acdbOpenObject(pExtDict, extDictId, AcDb::kForRead) != Acad::eOk)
+    if (acdbOpenObject(pExtDict, extDictId, AcDb::kForRead) != Acad::eOk || pExtDict == nullptr)
         return o.str();
     AcDbObjectId filterDictId;
     Acad::ErrorStatus es = pExtDict->getAt(ACRX_T("ACAD_FILTER"), filterDictId);
     pExtDict->close();
+    if (es == Acad::eKeyNotFound) {
+        lookupComplete = true;
+        return o.str();
+    }
     if (es != Acad::eOk || filterDictId.isNull())
         return o.str();
     AcDbDictionary* pFilterDict = nullptr;
-    if (acdbOpenObject(pFilterDict, filterDictId, AcDb::kForRead) != Acad::eOk)
+    if (acdbOpenObject(pFilterDict, filterDictId, AcDb::kForRead) != Acad::eOk || pFilterDict == nullptr)
         return o.str();
     AcDbObjectId spId;
     es = pFilterDict->getAt(ACRX_T("SPATIAL"), spId);
     pFilterDict->close();
+    if (es == Acad::eKeyNotFound) {
+        lookupComplete = true;
+        return o.str();
+    }
     if (es != Acad::eOk || spId.isNull())
         return o.str();
     AcDbSpatialFilter* pSF = nullptr;
-    if (acdbOpenObject(pSF, spId, AcDb::kForRead) != Acad::eOk)
+    if (acdbOpenObject(pSF, spId, AcDb::kForRead) != Acad::eOk || pSF == nullptr)
         return o.str();
     AcGePoint2dArray pts;
     AcGeVector3d normal;
@@ -862,6 +989,7 @@ static std::string spatialFilterJson(const AcDbObjectId& extDictId)
     pSF->close();
     if (es != Acad::eOk)
         return o.str();
+    lookupComplete = true;
     o << ",\"xclip\":{\"enabled\":" << (enabled ? "true" : "false")
       << ",\"inverted\":" << (inverted ? "true" : "false")
       << ",\"elevation\":" << elevation
@@ -1508,6 +1636,8 @@ static bool collectEntitiesFromBlock(AcDbBlockTableRecord* pBTR, const char* spa
                                      RichGraphCounters& richCounters)
 {
     total = 0;
+    int successfulEntityOpens = 0;
+    bool populationComplete = true;
     std::ostringstream arr; arr.precision(kJsonDoublePrecision);
     arr << "[";
     bool first = true;
@@ -1519,14 +1649,18 @@ static bool collectEntitiesFromBlock(AcDbBlockTableRecord* pBTR, const char* spa
     bool extensionXrecordFirst = true;
 
     AcDbBlockTableRecordIterator* pIt = nullptr;
-    if (pBTR->newIterator(pIt) != Acad::eOk)
+    if (pBTR->newIterator(pIt) != Acad::eOk || pIt == nullptr)
         return false;
 
     for (pIt->start(); !pIt->done(); pIt->step()) {
+        ++total;  // count iterator members independently from successful opens
         AcDbEntity* pEnt = nullptr;
-        if (pIt->getEntity(pEnt, AcDb::kForRead) != Acad::eOk)
+        if (pIt->getEntity(pEnt, AcDb::kForRead) != Acad::eOk || pEnt == nullptr) {
+            populationComplete = false;
             continue;
-        ++total;
+        }
+        ++successfulEntityOpens;
+        bool entityClosed = false;
 
         // handle (this entity's persistent objectId handle, ascii hex)
         std::string handleStr;
@@ -1572,11 +1706,18 @@ static bool collectEntitiesFromBlock(AcDbBlockTableRecord* pBTR, const char* spa
             }
         }
 
+        bool hasSpatialFilter = false;
         const AcDbObjectId extDictId = pEnt->extensionDictionary();
         if (!extDictId.isNull()) {
             arr << ",\"extension_dictionary_handle\":\""
                 << jsonEscape(handleOfId(extDictId)) << "\"";
-            arr << spatialFilterJson(extDictId);  // #27: XCLIP clip boundary, if any
+            bool spatialFilterLookupComplete = false;
+            const std::string spatialFilterField = spatialFilterJson(
+                extDictId, spatialFilterLookupComplete);
+            if (!spatialFilterLookupComplete)
+                populationComplete = false;
+            hasSpatialFilter = !spatialFilterField.empty();
+            arr << spatialFilterField;  // #27: XCLIP clip boundary, if any
             const std::string extJson = extensionDictionaryJson(
                 handleStr, extDictId, extensionXrecords, extensionXrecordFirst, richCounters);
             if (!extJson.empty()) {
@@ -1591,21 +1732,29 @@ static bool collectEntitiesFromBlock(AcDbBlockTableRecord* pBTR, const char* spa
         if (AcDbLine* pLine = AcDbLine::cast(pEnt)) {
             const AcGePoint3d s = pLine->startPoint();
             const AcGePoint3d e = pLine->endPoint();
+            // LINE endpoints are already full 3D immediate-owner coordinates;
+            // unlike OCS curve payloads, no plane basis is needed to interpret them.
             arr << ",\"start\":[" << s.x << "," << s.y << "," << s.z << "]"
                 << ",\"end\":[" << e.x << "," << e.y << "," << e.z << "]";
         }
         else if (AcDbArc* pArc = AcDbArc::cast(pEnt)) {
             // AcDbArc derives from AcDbCircle; test arc BEFORE circle.
             const AcGePoint3d c = pArc->center();
+            const AcGeVector3d normal = pArc->normal();
             arr << ",\"center\":[" << c.x << "," << c.y << "," << c.z << "]"
                 << ",\"radius\":" << pArc->radius()
                 << ",\"start_angle\":" << pArc->startAngle()
-                << ",\"end_angle\":" << pArc->endAngle();
+                << ",\"end_angle\":" << pArc->endAngle()
+                << ",\"normal\":[" << normal.x << "," << normal.y << "," << normal.z << "]"
+                << ownerPlaneMetadataJson(c, normal, nullptr);
         }
         else if (AcDbCircle* pCir = AcDbCircle::cast(pEnt)) {
             const AcGePoint3d c = pCir->center();
+            const AcGeVector3d normal = pCir->normal();
             arr << ",\"center\":[" << c.x << "," << c.y << "," << c.z << "]"
-                << ",\"radius\":" << pCir->radius();
+                << ",\"radius\":" << pCir->radius()
+                << ",\"normal\":[" << normal.x << "," << normal.y << "," << normal.z << "]"
+                << ownerPlaneMetadataJson(c, normal, nullptr);
         }
         // T3a: AcDbEllipse derives from AcDbCurve (not from AcDbCircle/AcDbArc),
         // so its cast() ordering relative to them is not load-bearing -- placed
@@ -1647,13 +1796,21 @@ static bool collectEntitiesFromBlock(AcDbBlockTableRecord* pBTR, const char* spa
                 << ",\"closed\":" << (pSpl->isClosed() ? "true" : "false");
             const int nFit = pSpl->numFitPoints();
             arr << ",\"fit_points\":[";
+            bool fitPointFirst = true;
+            int successfulFitPointReads = 0;
             for (int fi = 0; fi < nFit; ++fi) {
                 AcGePoint3d fp;
-                if (pSpl->getFitPointAt(fi, fp) != Acad::eOk)
-                    break;
-                if (fi != 0) arr << ",";
+                if (pSpl->getFitPointAt(fi, fp) != Acad::eOk) {
+                    populationComplete = false;
+                    continue;
+                }
+                ++successfulFitPointReads;
+                if (!fitPointFirst) arr << ",";
+                fitPointFirst = false;
                 arr << "[" << fp.x << "," << fp.y << "," << fp.z << "]";
             }
+            if (successfulFitPointReads != nFit)
+                populationComplete = false;
             arr << "]";
             int nurbsDegree = 0;
             Adesk::Boolean rational = Adesk::kFalse, closedFlag = Adesk::kFalse, periodic = Adesk::kFalse;
@@ -1677,22 +1834,44 @@ static bool collectEntitiesFromBlock(AcDbBlockTableRecord* pBTR, const char* spa
             }
         }
         else if (AcDbBlockReference* pRef = AcDbBlockReference::cast(pEnt)) {
+            const AcDbObjectId referenceId = pRef->objectId();
+            const AcDbObjectId referencedBtrId = pRef->blockTableRecord();
             const AcGePoint3d p = pRef->position();
             const AcGeScale3d sc = pRef->scaleFactors();
+            const AcGeVector3d normal = pRef->normal();
+            const AcGeMatrix3d definitionToOwner = pRef->blockTransform();
+            AcDbMInsertBlock* pMInsert = AcDbMInsertBlock::cast(pRef);
+            const bool isMInsert = pMInsert != nullptr;
+            const int rowCount = isMInsert ? static_cast<int>(pMInsert->rows()) : 1;
+            const int columnCount = isMInsert ? static_cast<int>(pMInsert->columns()) : 1;
+            const double rowSpacing = isMInsert ? pMInsert->rowSpacing() : 0.0;
+            const double columnSpacing = isMInsert ? pMInsert->columnSpacing() : 0.0;
+            AcDbAnnotativeObjectPE* pAnnotativePE = ACRX_PE_PTR(pRef, AcDbAnnotativeObjectPE);
+            const bool isAnnotative = pAnnotativePE != nullptr && pAnnotativePE->annotative(pRef);
+            const bool isPlainBlockReference = pRef->isA() == AcDbBlockReference::desc();
+
             arr << ",\"position\":[" << p.x << "," << p.y << "," << p.z << "]"
                 << ",\"scale\":[" << sc.sx << "," << sc.sy << "," << sc.sz << "]"
-                << ",\"rotation\":" << pRef->rotation();
+                << ",\"rotation\":" << pRef->rotation()
+                << ",\"normal\":[" << normal.x << "," << normal.y << "," << normal.z << "]"
+                << ",\"definition_to_owner_transform\":" << matrix4x4Json(definitionToOwner)
+                << ",\"transform_convention\":\"row_major; q=M@[x,y,z,1]; definition_to_immediate_owner; btr_origin_included_once\"";
             std::string blockName;
             AcDbBlockTableRecord* pDef = nullptr;
-            if (acdbOpenObject(pDef, pRef->blockTableRecord(),
-                               AcDb::kForRead) == Acad::eOk) {
+            if (referencedBtrId.isNull()
+                    || acdbOpenObject(pDef, referencedBtrId, AcDb::kForRead) != Acad::eOk
+                    || pDef == nullptr) {
+                populationComplete = false;
+            } else {
                 const ACHAR* nameRaw = nullptr;
-                if (pDef->getName(nameRaw) == Acad::eOk)
+                if (pDef->getName(nameRaw) == Acad::eOk && nameRaw != nullptr)
                     blockName = acharToAscii(nameRaw);
+                else
+                    populationComplete = false;
                 pDef->close();
             }
             arr << ",\"block_name\":\"" << jsonEscape(blockName) << "\""
-                << ",\"block_record_handle\":\"" << jsonEscape(handleOfId(pRef->blockTableRecord())) << "\"";
+                << ",\"block_record_handle\":\"" << jsonEscape(handleOfId(referencedBtrId)) << "\"";
             // p3-insattr: attached ATTRIB values, grouped on the INSERT itself.
             // attributeIterator() walks objects appended via appendAttribute()
             // (write.entity.blockref's new "attributes" job arg, m08g_handlers.
@@ -1707,11 +1886,20 @@ static bool collectEntitiesFromBlock(AcDbBlockTableRecord* pBTR, const char* spa
                 std::ostringstream attrs; attrs.precision(kJsonDoublePrecision);
                 attrs << "[";
                 bool afirst = true;
+                int attributeMembers = 0;
+                int successfulAttributeOpens = 0;
                 AcDbObjectIterator* pAIt = pRef->attributeIterator();
+                if (pAIt == nullptr)
+                    populationComplete = false;
                 for (; pAIt != nullptr && !pAIt->done(); pAIt->step()) {
+                    ++attributeMembers;
                     AcDbAttribute* pA = nullptr;
-                    if (acdbOpenObject(pA, pAIt->objectId(), AcDb::kForRead) != Acad::eOk)
+                    if (acdbOpenObject(pA, pAIt->objectId(), AcDb::kForRead) != Acad::eOk
+                            || pA == nullptr) {
+                        populationComplete = false;
                         continue;
+                    }
+                    ++successfulAttributeOpens;
                     const AcGePoint3d ap = pA->position();
                     if (!afirst) attrs << ",";
                     afirst = false;
@@ -1723,9 +1911,52 @@ static bool collectEntitiesFromBlock(AcDbBlockTableRecord* pBTR, const char* spa
                     pA->close();
                 }
                 delete pAIt;
+                if (successfulAttributeOpens != attributeMembers)
+                    populationComplete = false;
                 attrs << "]";
                 arr << ",\"attributes\":" << attrs.str();
             }
+
+            // AcDbDynBlockReference internally opens the reference. Close our
+            // iterator-owned read pointer first, matching the existing W6
+            // dynamic-block handler's same-object open discipline.
+            pEnt->close();
+            entityClosed = true;
+            bool isDynamic = false;
+            std::string dynamicEvaluatedBtrHandle;
+            if (!referenceId.isNull()) {
+                AcDbDynBlockReference dynamicReference(referenceId);
+                isDynamic = dynamicReference.isDynamicBlock();
+                if (isDynamic) {
+                    AcDbObjectId evaluatedBtrId = dynamicReference.anonymousBlockTableRecord();
+                    if (evaluatedBtrId.isNull())
+                        evaluatedBtrId = referencedBtrId;
+                    dynamicEvaluatedBtrHandle = handleOfId(evaluatedBtrId);
+                }
+            }
+
+            const char* mode = "OTHER";
+            if (isMInsert)
+                mode = "MINSERT";
+            else if (isDynamic)
+                mode = "DYNAMIC";
+            else if (isAnnotative)
+                mode = "ANNOTATIVE";
+            else if (isPlainBlockReference)
+                mode = "STATIC_SINGLE";
+
+            arr << ",\"instance_semantics\":{\"mode\":\"" << mode << "\""
+                << ",\"row_count\":" << rowCount
+                << ",\"column_count\":" << columnCount
+                << ",\"row_spacing\":" << rowSpacing
+                << ",\"column_spacing\":" << columnSpacing
+                << ",\"dynamic_evaluated_btr_handle\":";
+            if (dynamicEvaluatedBtrHandle.empty())
+                arr << "null";
+            else
+                arr << "\"" << jsonEscape(dynamicEvaluatedBtrHandle) << "\"";
+            arr << ",\"xclip\":\"" << (hasSpatialFilter ? "PRESENT" : "NONE") << "\""
+                << ",\"xref_source_sha256\":null}";
         }
         // p3-insattr: AcDbAttributeDefinition (ATTDEF) -- derives from AcDbText
         // (dbents.h), so this branch MUST precede the generic AcDbText cast
@@ -1796,8 +2027,13 @@ static bool collectEntitiesFromBlock(AcDbBlockTableRecord* pBTR, const char* spa
         }
         else if (AcDbPolyline* pPl = AcDbPolyline::cast(pEnt)) {
             const unsigned int n = pPl->numVerts();
+            const AcGeVector3d normal = pPl->normal();
+            const double elevation = pPl->elevation();
             arr << ",\"vertex_count\":" << n
-                << ",\"closed\":" << (pPl->isClosed() ? "true" : "false");
+                << ",\"closed\":" << (pPl->isClosed() ? "true" : "false")
+                << ",\"normal\":[" << normal.x << "," << normal.y << "," << normal.z << "]"
+                << ",\"elevation\":" << elevation
+                << ownerPlaneMetadataAtElevationJson(normal, elevation, nullptr);
             // #65: constant width (a "thick" polyline) -- getConstantWidth
             // succeeds only when every segment shares one width; else widths
             // vary per vertex (emitted below). The graph dropped both, so thick
@@ -1806,28 +2042,39 @@ static bool collectEntitiesFromBlock(AcDbBlockTableRecord* pBTR, const char* spa
             if (pPl->getConstantWidth(constW) == Acad::eOk && constW != 0.0)
                 arr << ",\"const_width\":" << constW;
             arr << ",\"vertices\":[";
+            unsigned int successfulVertexReads = 0;
+            bool vertexFirst = true;
             for (unsigned int vi = 0; vi < n; ++vi) {
                 AcGePoint3d vp;
-                if (pPl->getPointAt(vi, vp) != Acad::eOk)
-                    break;
                 double bulge = 0.0;
-                pPl->getBulgeAt(vi, bulge);
                 double sw = 0.0, ew = 0.0;
-                pPl->getWidthsAt(vi, sw, ew);
-                if (vi != 0)
+                const Acad::ErrorStatus pointStatus = pPl->getPointAt(vi, vp);
+                const Acad::ErrorStatus bulgeStatus = pPl->getBulgeAt(vi, bulge);
+                const Acad::ErrorStatus widthsStatus = pPl->getWidthsAt(vi, sw, ew);
+                if (pointStatus != Acad::eOk || bulgeStatus != Acad::eOk
+                        || widthsStatus != Acad::eOk) {
+                    populationComplete = false;
+                    continue;
+                }
+                ++successfulVertexReads;
+                if (!vertexFirst)
                     arr << ",";
+                vertexFirst = false;
                 arr << "{\"point\":[" << vp.x << "," << vp.y << "," << vp.z << "]"
                     << ",\"bulge\":" << bulge;
                 if (sw != 0.0 || ew != 0.0)
                     arr << ",\"start_width\":" << sw << ",\"end_width\":" << ew;
                 arr << "}";
             }
+            if (successfulVertexReads != n)
+                populationComplete = false;
             arr << "]";
         }
         // M02: old-style 2D/3D polylines store vertices as owned sub-entities
         // (AcDb2dVertex / AcDb3dPolylineVertex) walked via vertexIterator(), not
         // getPointAt(). Without this branch these (1874 POLYLINE in the golden)
-        // carried no coordinate geometry. position() is OCS for 2D; emitted as-is.
+        // carried no coordinate geometry. AcDb2dVertex::position() is stored OCS;
+        // vertexPosition() converts it to the immediate-owner frame emitted here.
         // p4-poly2d: extended with elevation/default_start_width/default_end_width
         // (entity-level) and per-vertex bulge/start_width/end_width (was bare
         // [x,y,z]) so the deep write.entity.polyline2d.deep write path (AcDb2dPolyline
@@ -1835,28 +2082,51 @@ static bool collectEntitiesFromBlock(AcDbBlockTableRecord* pBTR, const char* spa
         // any pre-existing AcDb2dPolyline this branch already read (M02 comment
         // above) -- these are additional fields, not a removed one.
         else if (AcDb2dPolyline* p2d = AcDb2dPolyline::cast(pEnt)) {
+            const AcGeVector3d normal = p2d->normal();
+            const double elevation = p2d->elevation();
+            const char* legacyType = legacyPolylineTypeName(p2d->polyType());
             arr << ",\"closed\":" << (p2d->isClosed() ? "true" : "false")
-                << ",\"elevation\":" << p2d->elevation()
+                << ",\"elevation\":" << elevation
+                << ",\"normal\":[" << normal.x << "," << normal.y << "," << normal.z << "]"
                 << ",\"default_start_width\":" << p2d->defaultStartWidth()
                 << ",\"default_end_width\":" << p2d->defaultEndWidth()
-                << ",\"vertices\":[";
+                << ownerPlaneMetadataAtElevationJson(normal, elevation, legacyType);
+            std::ostringstream vertices; vertices.precision(kJsonDoublePrecision);
+            vertices << "[";
             AcDbObjectIterator* pVi = p2d->vertexIterator();
+            int vertexMembers = 0;
+            int successfulVertexOpens = 0;
             bool vfirst = true;
-            for (; pVi != nullptr && !pVi->done(); pVi->step()) {
-                AcDb2dVertex* pV = nullptr;
-                if (acdbOpenObject(pV, pVi->objectId(), AcDb::kForRead) == Acad::eOk) {
-                    const AcGePoint3d vp = pV->position();
-                    if (!vfirst) arr << ",";
+            if (pVi == nullptr) {
+                populationComplete = false;
+            } else {
+                for (; !pVi->done(); pVi->step()) {
+                    ++vertexMembers;  // independent of whether the vertex opens
+                    AcDb2dVertex* pV = nullptr;
+                    if (acdbOpenObject(pV, pVi->objectId(), AcDb::kForRead) != Acad::eOk
+                            || pV == nullptr) {
+                        populationComplete = false;
+                        continue;
+                    }
+                    ++successfulVertexOpens;
+                    // vertexPosition() is the public owner-frame accessor;
+                    // AcDb2dVertex::position() is the stored OCS value.
+                    const AcGePoint3d vp = p2d->vertexPosition(*pV);
+                    if (!vfirst) vertices << ",";
                     vfirst = false;
-                    arr << "{\"point\":[" << vp.x << "," << vp.y << "," << vp.z << "]"
-                        << ",\"bulge\":" << pV->bulge()
-                        << ",\"start_width\":" << pV->startWidth()
-                        << ",\"end_width\":" << pV->endWidth() << "}";
+                    vertices << "{\"point\":[" << vp.x << "," << vp.y << "," << vp.z << "]"
+                             << ",\"bulge\":" << pV->bulge()
+                             << ",\"start_width\":" << pV->startWidth()
+                             << ",\"end_width\":" << pV->endWidth() << "}";
                     pV->close();
                 }
             }
             delete pVi;
-            arr << "]";
+            if (successfulVertexOpens != vertexMembers)
+                populationComplete = false;
+            vertices << "]";
+            arr << ",\"vertex_count\":" << vertexMembers
+                << ",\"vertices\":" << vertices.str();
         }
         else if (AcDb3dPolyline* p3d = AcDb3dPolyline::cast(pEnt)) {
             arr << ",\"closed\":" << (p3d->isClosed() ? "true" : "false")
@@ -2740,7 +3010,8 @@ static bool collectEntitiesFromBlock(AcDbBlockTableRecord* pBTR, const char* spa
         }
 
         arr << "}";
-        pEnt->close();
+        if (!entityClosed)
+            pEnt->close();
     }
 
     delete pIt;
@@ -2750,7 +3021,7 @@ static bool collectEntitiesFromBlock(AcDbBlockTableRecord* pBTR, const char* spa
     entitiesJson = arr.str();
     extensionDictionariesJson = extensionDictionaries.str();
     extensionXrecordsJson = extensionXrecords.str();
-    return true;
+    return populationComplete && successfulEntityOpens == total;
 }
 
 // collectModelSpaceGraph: thin *Model_Space wrapper preserving the exact
@@ -3437,10 +3708,13 @@ static std::string textStylesRichJson(AcDbDatabase* pDb, int& count)
 // contents must never be appended there.
 static std::string blockTableRecordsJson(AcDbDatabase* pDb, int& btrCount,
                                          int& capturedBlockDefs,
-                                         std::string& blockDefsJson)
+                                         std::string& blockDefsJson,
+                                         bool& populationComplete)
 {
     btrCount = 0;
     capturedBlockDefs = 0;
+    populationComplete = true;
+    int successfulBtrOpens = 0;
     std::ostringstream arr; arr.precision(kJsonDoublePrecision);
     arr << "[";
     bool first = true;
@@ -3449,23 +3723,33 @@ static std::string blockTableRecordsJson(AcDbDatabase* pDb, int& btrCount,
     bool dfirst = true;
 
     AcDbBlockTable* pBT = nullptr;
-    if (pDb->getBlockTable(pBT, AcDb::kForRead) != Acad::eOk) {
+    if (pDb->getBlockTable(pBT, AcDb::kForRead) != Acad::eOk || pBT == nullptr) {
+        populationComplete = false;
         blockDefsJson = "[]";
         return "[]";
     }
     AcDbBlockTableIterator* pIt = nullptr;
-    if (pBT->newIterator(pIt) != Acad::eOk) {
+    if (pBT->newIterator(pIt) != Acad::eOk || pIt == nullptr) {
+        populationComplete = false;
         pBT->close();
         blockDefsJson = "[]";
         return "[]";
     }
     for (pIt->start(); !pIt->done(); pIt->step()) {
+        ++btrCount;  // count table members independently from successful opens
         AcDbBlockTableRecord* pBTR = nullptr;
-        if (pIt->getRecord(pBTR, AcDb::kForRead) == Acad::eOk) {
+        if (pIt->getRecord(pBTR, AcDb::kForRead) != Acad::eOk || pBTR == nullptr) {
+            populationComplete = false;
+            continue;
+        }
+        ++successfulBtrOpens;
+        {
             const ACHAR* nameRaw = nullptr;
             std::string name;
-            if (pBTR->getName(nameRaw) == Acad::eOk)
+            if (pBTR->getName(nameRaw) == Acad::eOk && nameRaw != nullptr)
                 name = acharToAscii(nameRaw);
+            else
+                populationComplete = false;
             const bool isLayout = pBTR->isLayout();
             const bool isAnon = pBTR->isAnonymous();
             const bool isXref = pBTR->isFromExternalReference();
@@ -3488,15 +3772,20 @@ static std::string blockTableRecordsJson(AcDbDatabase* pDb, int& btrCount,
                 // stay modelspace-only, byte-identical to before this change.
                 std::string defExtDicts, defExtXrecords;
                 RichGraphCounters localCounters;
-                collectEntitiesFromBlock(pBTR, "block", entityCount, defEntitiesJson,
-                                         defExtDicts, defExtXrecords, localCounters);
+                const bool definitionPopulationComplete = collectEntitiesFromBlock(
+                    pBTR, "block", entityCount, defEntitiesJson,
+                    defExtDicts, defExtXrecords, localCounters);
+                if (!definitionPopulationComplete)
+                    populationComplete = false;
             } else {
                 AcDbBlockTableRecordIterator* pEIt = nullptr;
-                if (pBTR->newIterator(pEIt) == Acad::eOk) {
+                if (pBTR->newIterator(pEIt) != Acad::eOk || pEIt == nullptr) {
+                    populationComplete = false;
+                } else {
                     for (pEIt->start(); !pEIt->done(); pEIt->step())
                         ++entityCount;
-                    delete pEIt;
                 }
+                delete pEIt;
             }
             const std::string handle = handleOf(pBTR);
             const AcGePoint3d origin = pBTR->origin();
@@ -3541,7 +3830,6 @@ static std::string blockTableRecordsJson(AcDbDatabase* pDb, int& btrCount,
             if (!sortentsJson.empty())
                 arr << ",\"sortents\":" << sortentsJson;
             arr << "}";
-            ++btrCount;
             if (emitBlockDef) {
                 ++capturedBlockDefs;
                 if (!dfirst)
@@ -3563,6 +3851,8 @@ static std::string blockTableRecordsJson(AcDbDatabase* pDb, int& btrCount,
     arr << "]";
     defs << "]";
     blockDefsJson = defs.str();
+    if (successfulBtrOpens != btrCount)
+        populationComplete = false;
     return arr.str();
 }
 
@@ -3790,7 +4080,14 @@ static std::string databaseMetaJson(AcDbDatabase* pDb)
         o << ",\"IMAGEFRAME\":" << dv;
     if (dictionaryVarInt(pDb, ACRX_T("FRAME"), dv))
         o << ",\"FRAME\":" << dv;
-    o << "}}";
+    o << "},\"modelspace_realized_extent_receipt\":{"  // E212 Phase A: no fabricated measurements
+      << "\"status\":\"BLOCKED\""
+      << ",\"reason_code\":\"NATIVE_EXACT_POPULATION_EXTENT_NOT_IMPLEMENTED\""
+      << ",\"algorithm_id\":\"cadagent.e212_native_scene_v2.extent.unavailable.v1\""
+      << ",\"block_expanded\":false"
+      << ",\"paper_included\":false"
+      << ",\"off_frozen_included_without_reading_style\":true"
+      << ",\"xref_mode\":\"none\"}}";
     return o.str();
 }
 
@@ -3801,7 +4098,8 @@ static std::string collectDatabaseGraph(AcDbDatabase* pDb,
                                         const std::string& extensionDictionariesJson,
                                         const std::string& extensionXrecordsJson,
                                         const RichGraphCounters& richCounters,
-                                        std::string& coverageJson)
+                                        std::string& coverageJson,
+                                        bool& populationComplete)
 {
     std::ostringstream sec; sec.precision(kJsonDoublePrecision);
     std::ostringstream present; present.precision(kJsonDoublePrecision);
@@ -3840,7 +4138,11 @@ static std::string collectDatabaseGraph(AcDbDatabase* pDb,
 
     int btrCount = 0, capturedBlockDefs = 0;
     std::string blockDefsJson;
-    const std::string btrJson = blockTableRecordsJson(pDb, btrCount, capturedBlockDefs, blockDefsJson);
+    bool blockPopulationComplete = false;
+    const std::string btrJson = blockTableRecordsJson(
+        pDb, btrCount, capturedBlockDefs, blockDefsJson, blockPopulationComplete);
+    if (!blockPopulationComplete)
+        populationComplete = false;
     sec << ",\"block_table_records\":" << btrJson
         << ",\"block_definitions\":" << blockDefsJson;
     addPresent("block_table_records");
@@ -3869,7 +4171,9 @@ static std::string collectDatabaseGraph(AcDbDatabase* pDb,
     addPresent("hatch_loops");
 
     std::ostringstream cov; cov.precision(kJsonDoublePrecision);
-    cov << "{\"layers\":\"implemented\""
+    cov << "{\"population_entities\":\""
+        << (populationComplete ? "implemented" : "error") << "\""
+        << ",\"layers\":\"implemented\""
         << ",\"linetypes\":\"implemented\""
         << ",\"text_styles\":\"implemented\""
         << ",\"dim_styles\":\"implemented\""
@@ -6667,34 +6971,65 @@ static std::string ariadneNativeJobResult(
         // richCounters stay consistent with the emitted content: a paper entity that
         // increments a coverage counter also lands in the emitted arrays (SBC audit).
         int paperTotal = 0;
+        bool paperPopulationComplete = true;
+        int layoutMembers = 0;
+        int successfulLayoutOpens = 0;
         AcDbDictionary* pLayouts = nullptr;
-        if (pDb->getLayoutDictionary(pLayouts, AcDb::kForRead) == Acad::eOk) {
+        if (pDb->getLayoutDictionary(pLayouts, AcDb::kForRead) != Acad::eOk
+                || pLayouts == nullptr) {
+            paperPopulationComplete = false;
+        } else {
             AcDbDictionaryIterator* pIt = pLayouts->newIterator();
-            for (; pIt != nullptr && !pIt->done(); pIt->next()) {
-                AcDbObject* pObj = nullptr;
-                if (acdbOpenObject(pObj, pIt->objectId(), AcDb::kForRead) == Acad::eOk) {
+            if (pIt == nullptr) {
+                paperPopulationComplete = false;
+            } else {
+                for (; !pIt->done(); pIt->next()) {
+                    ++layoutMembers;  // independent of successful layout opens
+                    AcDbObject* pObj = nullptr;
+                    if (acdbOpenObject(pObj, pIt->objectId(), AcDb::kForRead) != Acad::eOk
+                            || pObj == nullptr) {
+                        paperPopulationComplete = false;
+                        continue;
+                    }
+                    ++successfulLayoutOpens;
                     AcDbLayout* pLayout = AcDbLayout::cast(pObj);
-                    if (pLayout != nullptr) {
-                        const ACHAR* nameRaw = nullptr;
-                        std::string layoutName;
-                        if (pLayout->getLayoutName(nameRaw) == Acad::eOk)
-                            layoutName = acharToAscii(nameRaw);
-                        if (layoutName != "Model") {
-                            AcDbBlockTableRecord* pBTR = nullptr;
-                            if (acdbOpenObject(pBTR, pLayout->getBlockTableRecordId(),
-                                                AcDb::kForRead) == Acad::eOk) {
-                                int paperCount = 0;
-                                std::string paperEntitiesJson, paperExtDicts, paperXrecords;
-                                if (collectEntitiesFromBlock(
-                                        pBTR, "paper", paperCount, paperEntitiesJson,
-                                        paperExtDicts, paperXrecords, richCounters)) {
-                                    entitiesJson = mergeJsonArrays(entitiesJson, paperEntitiesJson);
-                                    extensionDictionariesJson = mergeJsonArrays(extensionDictionariesJson, paperExtDicts);
-                                    extensionXrecordsJson = mergeJsonArrays(extensionXrecordsJson, paperXrecords);
-                                    paperTotal += paperCount;
-                                }
-                                pBTR->close();
+                    if (pLayout == nullptr) {
+                        paperPopulationComplete = false;
+                        pObj->close();
+                        continue;
+                    }
+                    const ACHAR* nameRaw = nullptr;
+                    std::string layoutName;
+                    if (pLayout->getLayoutName(nameRaw) != Acad::eOk || nameRaw == nullptr) {
+                        paperPopulationComplete = false;
+                        pObj->close();
+                        continue;
+                    }
+                    layoutName = acharToAscii(nameRaw);
+                    if (layoutName != "Model") {
+                        const AcDbObjectId paperBtrId = pLayout->getBlockTableRecordId();
+                        AcDbBlockTableRecord* pBTR = nullptr;
+                        if (paperBtrId.isNull()
+                                || acdbOpenObject(pBTR, paperBtrId, AcDb::kForRead) != Acad::eOk
+                                || pBTR == nullptr) {
+                            paperPopulationComplete = false;
+                        } else {
+                            int paperCount = 0;
+                            std::string paperEntitiesJson, paperExtDicts, paperXrecords;
+                            const bool paperBlockComplete = collectEntitiesFromBlock(
+                                pBTR, "paper", paperCount, paperEntitiesJson,
+                                paperExtDicts, paperXrecords, richCounters);
+                            if (!paperBlockComplete) {
+                                paperPopulationComplete = false;
+                            } else {
+                                entitiesJson = mergeJsonArrays(entitiesJson, paperEntitiesJson);
+                                extensionDictionariesJson = mergeJsonArrays(
+                                    extensionDictionariesJson, paperExtDicts);
+                                extensionXrecordsJson = mergeJsonArrays(
+                                    extensionXrecordsJson, paperXrecords);
+                                paperTotal += paperCount;
                             }
+                            pBTR->close();
                         }
                     }
                     pObj->close();
@@ -6703,6 +7038,10 @@ static std::string ariadneNativeJobResult(
             delete pIt;
             pLayouts->close();
         }
+        if (successfulLayoutOpens != layoutMembers)
+            paperPopulationComplete = false;
+        bool graphPopulationComplete = ok && paperPopulationComplete;
+
 
         // M02: rich database graph (symbol tables, blocks, layouts, xrefs,
         // dictionaries, xrecords) spliced alongside the model-space entities[].
@@ -6710,13 +7049,17 @@ static std::string ariadneNativeJobResult(
         // sections are real vs partial/skipped (no-fake-success).
         std::string coverageJson;
         const std::string richSections = collectDatabaseGraph(
-            pDb, extensionDictionariesJson, extensionXrecordsJson, richCounters, coverageJson);
-        r << "\"result\":{\"modelspace_entities\":" << total
+            pDb, extensionDictionariesJson, extensionXrecordsJson, richCounters,
+            coverageJson, graphPopulationComplete);
+        r << "\"result\":{\"producer_profile\":\"ariadne.dwg_graph_ir.e212_native_scene_v2\""
+          << ",\"profile_version\":\"1.0.0\""
+          << ",\"numeric_contract\":\"binary64_max_digits10;row_major;column_vector;right_handed\""
+          << ",\"modelspace_entities\":" << total
           << ",\"paperspace_entities\":" << paperTotal
           << ",\"entities\":" << entitiesJson
           << "," << richSections
           << ",\"coverage\":" << coverageJson << "},"
-          << "\"status\":\"" << (ok ? "ok" : "error") << "\"}";
+          << "\"status\":\"" << (graphPopulationComplete ? "ok" : "error") << "\"}";
     }
     else if (op == "write.layer.create") {
         std::string name;
