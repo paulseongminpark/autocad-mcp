@@ -130,7 +130,7 @@ def test_build_verdict_reports_total_kind_and_layer_deltas():
 
 
 @pytest.mark.skipif(
-    not Path(r"D:\dev\99_tools\libredwg\bin\dwgread.exe").exists(),
+    not Path(r"D:\10_data\20_vendor\libredwg\bin\dwgread.exe").exists(),
     reason="LibreDWG sidecar unavailable on this machine",
 )
 def test_cross_verify_live_fixture_against_real_arx_ir():
@@ -150,7 +150,7 @@ def test_cross_verify_live_fixture_against_real_arx_ir():
             str(fixture),
             ir_path=str(ir_path),
             out_dir=td,
-            libredwg_bin=r"D:\dev\99_tools\libredwg\bin",
+            libredwg_bin=r"D:\10_data\20_vendor\libredwg\bin",
         )
 
     assert verdict["status"] == "ok"

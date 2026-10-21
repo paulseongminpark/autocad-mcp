@@ -1,6 +1,6 @@
 # AutoCAD SDK Router -- MANDATORY USAGE CONTRACT
 
-**Router home**: `D:\dev\99_tools\autocad-sdk-router`
+**Router home**: `D:\00_dev\01_agent-setup\50_tools\02_autocad-mcp\autocad-mcp`
 **Single entrypoint (PowerShell)**: `tools\autocad-router.ps1`
 **Python route runner**: `tools\run_route.py` (invoked by the PS entrypoint; can be called directly for the python routes)
 **Capabilities (SoT)**: `config\autocad_router_capabilities.json`
@@ -16,7 +16,7 @@
 >
 > **Do NOT hand-call `ezdxf`, `ifcopenshell`, `cadquery`, `trimesh`, `open3d`, `fitz`/PyMuPDF, `cv2`, `pyogrio`, `accoreconsole`, COM, ObjectARX, etc. directly from a one-off script.** Those libraries are the router's *engines*; calling them ad-hoc bypasses availability probing, native ARX/DBX-first routing, explicit write-mode accounting, fallback chains, and the honest "tool-not-installed" contract, and silently reintroduces every failure mode this router exists to prevent.
 
-**Allowed exception**: writing a NEW route or fixing the router itself (work *inside* `D:\dev\99_tools\autocad-sdk-router`). Even then, route execution still flows through `run_route.py` so the discipline below holds.
+**Allowed exception**: writing a NEW route or fixing the router itself (work *inside* `D:\00_dev\01_agent-setup\50_tools\02_autocad-mcp\autocad-mcp`). Even then, route execution still flows through `run_route.py` so the discipline below holds.
 
 **Why this rule exists**: the router guarantees (a) DWG work goes through the strongest official Autodesk SDK lane first, native ObjectARX/ObjectDBX when it can own the operation, (b) original/open DWG writes are explicit first-class `write_original`/live-edit operations instead of hidden side effects, (c) AutoCAD inputs can still be ASCII-staged for batch/copy/path-hygiene jobs, (d) a route reports `available:true` only when its REQUIRED tools actually import (no fake passes), (e) unavailable routes refuse to run instead of fabricating output, (f) heavy C-extensions load per-route so the interpreter exits clean.
 
@@ -38,7 +38,7 @@
 ## 2. Workflow (always this order)
 
 ```powershell
-$R = 'D:\dev\99_tools\autocad-sdk-router\tools\autocad-router.ps1'
+$R = 'D:\00_dev\01_agent-setup\50_tools\02_autocad-mcp\autocad-mcp\tools\autocad-router.ps1'
 
 # 1) Availability snapshot (LIVE probe -> rewrites status JSON)
 & $R -Action status
@@ -89,7 +89,7 @@ write_original/live active-document edits allowed when requested.
 
 ## 4. Per-route call examples + input / output / limits
 
-> `$R` = `'D:\dev\99_tools\autocad-sdk-router\tools\autocad-router.ps1'` throughout.
+> `$R` = `'D:\00_dev\01_agent-setup\50_tools\02_autocad-mcp\autocad-mcp\tools\autocad-router.ps1'` throughout.
 > Python routes can also be run directly: `python tools\run_route.py --route <id> --input <file> [--out <file>] [--input2 <img>]`. The PS entrypoint is preferred (it does availability + staging first).
 
 ### A. dwg_truth_autocad  (FLAGSHIP — DWG ground truth)
@@ -143,7 +143,7 @@ write_original/live active-document edits allowed when requested.
 ```powershell
 & $R -Action run -Intent libredwg -InputPath 'C:\path\to\drawing.dwg'
 ```
-- **State**: LibreDWG 0.13.4 win64 sidecar is installed under `D:\dev\99_tools\libredwg\bin`.
+- **State**: LibreDWG 0.13.4 win64 sidecar is installed under `D:\10_data\20_vendor\libredwg\bin`.
 - **Output**: `runs\dwg_libredwg_sidecar_<stamp>\libredwg_extract.json` and `libredwg_export.dxf`.
 - **Verified**: `input.dwg` produced JSON and DXF with `dwgread -O JSON|DXF -o ...`; original input was read-only.
 - **License boundary**: GPL sidecar process only; never import/link/bundle LibreDWG into production code.
@@ -201,7 +201,7 @@ write_original/live active-document edits allowed when requested.
 
 | item | state | manual path |
 |---|---|---|
-| **dwg_libredwg_sidecar** | installed and available | `D:\dev\99_tools\libredwg\bin\dwgread.exe` / `dwg2dxf.exe`; official win64 release SHA256 verified; GPL sidecar only, never bundle/import/link. |
+| **dwg_libredwg_sidecar** | installed and available | `D:\10_data\20_vendor\libredwg\bin\dwgread.exe` / `dwg2dxf.exe`; official win64 release SHA256 verified; GPL sidecar only, never bundle/import/link. |
 | **native osgeo.gdal** | not installed (geo_vector_route uses pyogrio instead) | OSGeo4W installer (gdal + python3-gdal) OR `conda install -c conda-forge gdal`. Only needed for raster GDAL + ogr2ogr/gdal_translate CLIs. |
 | **pythonocc-core** | not installed (OPTIONAL — cadquery-ocp already covers solid_brep_occ) | miniforge3 then `conda create -n occ -c conda-forge python=3.12 pythonocc-core`. |
 | **pdal** | not installed (OPTIONAL — laspy+open3d cover basic pointcloud) | miniforge3 then `conda create -n pdal -c conda-forge python=3.12 pdal python-pdal`. |
@@ -214,11 +214,13 @@ Installed engines satisfying the available routes: ifcopenshell 0.8.5, ezdxf 1.4
 
 ## 7. Env-var binding and enforcement (ARIADNE_AUTOCAD_ROUTER_*)
 
+> 2026-10-12 표시: Ariadne는 은퇴했고 아래가 가리키는 `ariadne_entrypoint_common.ps1`은 디스크에 없다. 이 절은 은퇴 전 기록이며 지금 따라 하는 절차가 아니다. 이 절의 경로는 옛 이름 그대로 둔다.
+
 The Ariadne tracked entrypoints export `ARIADNE_AUTOCAD_ROUTER_*` pointing at this local router from `D:\dev\_ariadne\bin\ariadne_entrypoint_common.ps1`.
 
 - `ARIADNE_AUTOCAD_ROUTER_ROOT=D:\dev\99_tools\autocad-sdk-router`
 - `ARIADNE_AUTOCAD_ROUTER_PATH=D:\dev\99_tools\autocad-sdk-router\tools\autocad-router.ps1`
-- `ARIADNE_LIBREDWG_BIN_DIR=D:\dev\99_tools\libredwg\bin`
+- `ARIADNE_LIBREDWG_BIN_DIR=D:\10_data\20_vendor\libredwg\bin`
 - `ARIADNE_CAD_ROUTER_ENFORCEMENT=required`
 - `ARIADNE_CAD_ROUTER_PROMPT_PATH=D:\dev\_ariadne\context\live\CAD_ROUTER_ENFORCEMENT.md`
 

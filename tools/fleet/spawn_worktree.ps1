@@ -25,7 +25,7 @@
   Usage:
     tools\fleet\spawn_worktree.ps1 -Node f20
     tools\fleet\spawn_worktree.ps1 -Node f20 -Wave w0 -BaseRef main
-    tools\fleet\spawn_worktree.ps1 -Node f20 -RepoRoot D:\dev\99_tools\autocad-sdk-router -SiblingRoot D:\scratch
+    tools\fleet\spawn_worktree.ps1 -Node f20 -RepoRoot D:\00_dev\01_agent-setup\50_tools\02_autocad-mcp\autocad-mcp -SiblingRoot D:\scratch
 
   Prints one JSON object (ariadne.cados.fleet_worktree.v1) to stdout.
 #>

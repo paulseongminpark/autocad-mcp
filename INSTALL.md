@@ -1,8 +1,8 @@
 # CAD OS — Install & Use (team)
 
 Let an AI agent (Claude / Codex / Pi / Gemini) **drive the AutoCAD SDK
-directly** — 479 native ObjectARX operations + inspect / patch / diff / validate /
-query — through one MCP server (`cadagent`), safely (original DWGs stay read-only).
+directly** — the native ObjectARX operations in the registry + inspect / patch / diff / validate /
+query — through one MCP server (`autocad-mcp`), safely (original DWGs stay read-only).
 
 > **What this is:** a control plane *on top of* AutoCAD. You still run your own
 > AutoCAD. This repo ships the router, the operation registry, the agent surface
@@ -30,8 +30,8 @@ the optional non-AutoCAD geometry routes.)
 ## 2. Quickstart
 
 ```powershell
-git clone https://github.com/paulseongminpark/autocad-sdk-router.git
-cd autocad-sdk-router
+git clone https://github.com/paulseongminpark/autocad-mcp.git
+cd autocad-mcp
 powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```
 
@@ -72,9 +72,9 @@ the absolute paths `install.ps1` prints.
 ```json
 {
   "mcpServers": {
-    "cadagent": {
+    "autocad-mcp": {
       "command": "C:/path/to/python.exe",
-      "args": ["C:/path/to/autocad-sdk-router/tools/cadagent_mcp.py", "--serve"],
+      "args": ["C:/path/to/autocad-mcp/tools/cadagent_mcp.py", "--serve"],
       "env": { "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8" }
     }
   }
@@ -83,17 +83,17 @@ the absolute paths `install.ps1` prints.
 
 **Codex** — `~/.codex/config.toml`:
 ```toml
-[mcp_servers.cadagent]
+[mcp_servers.autocad-mcp]
 command = "C:/path/to/python.exe"
-args = ["C:/path/to/autocad-sdk-router/tools/cadagent_mcp.py", "--serve"]
-[mcp_servers.cadagent.env]
+args = ["C:/path/to/autocad-mcp/tools/cadagent_mcp.py", "--serve"]
+[mcp_servers.autocad-mcp.env]
 PYTHONUTF8 = "1"
 PYTHONIOENCODING = "utf-8"
 ```
 
-**Pi** — `~/.pi/agent/mcp.json` → `mcpServers.cadagent` (same command/args/env).
+**Pi** — `~/.pi/agent/mcp.json` → `mcpServers.autocad-mcp` (same command/args/env).
 
-**Gemini (reviewer, READ-ONLY)** — `~/.gemini/settings.json` → `mcpServers.cadagent`
+**Gemini (reviewer, READ-ONLY)** — `~/.gemini/settings.json` → `mcpServers.autocad-mcp`
 with an `includeTools` whitelist that **excludes the two write-capable tools**
 (`cad.run_operation`, `cad.patch_apply_staged`):
 ```json
@@ -106,14 +106,14 @@ with an `includeTools` whitelist that **excludes the two write-capable tools**
 ```
 
 After registering, start a new session and confirm the tools load (Claude:
-`claude mcp list` → `cadagent` connected).
+`claude mcp list` → `autocad-mcp` connected).
 
 ## 4. Use it
 
 **Via the agent (natural language):** "extract this drawing's layers and blocks",
 "draw the wall centerlines on a copy". The agent calls:
 - read: `cad.inspect_drawing`, `cad.query_entities`, `cad.get_entity`
-- execute (479 ops): `cad.run_operation(op_id, args, write_mode)` — `write_mode`
+- execute (any registered op): `cad.run_operation(op_id, args, write_mode)` — `write_mode`
   must be in the op's `allowed_write_modes`; `write_original` is always refused.
 - change: `cad.patch_dry_run` → `cad.patch_apply_staged` (staged copy only) →
   `cad.diff_before_after`
@@ -154,7 +154,7 @@ are unchanged.
 
 ## 7. Troubleshooting
 
-- **`cadagent` not connected** — MCP loads at session start; start a **new**
+- **`autocad-mcp` not connected** — MCP loads at session start; start a **new**
   session. Check the `command` path points at your Python and `cadagent_mcp.py`.
 - **`native_cad_job_failed` / engine not found** — `tools\autocad-router.ps1
   -Action status`; confirm AutoCAD is installed and `prebuilt/<version>/` has all
