@@ -3,7 +3,7 @@
 
 Grounded in `.build/cados_plan/final/PLAN.md` PART 0 section 0.2 / PART 2
 section 2.6 and `.build/cados_plan/redteam/R3_coverage.md` finding G0 (measured
-2026-07-01, HEAD 543ae61 of `D:\\dev\\99_tools\\autocad-sdk-router`):
+2026-07-01, HEAD 543ae61 of `D:\\00_dev\\01_agent-setup\\50_tools\\02_autocad-mcp\\autocad-mcp`):
 
   "The 517-op catalog is not 'full SDK parity'. The plan's PART 2 section 2.6
   treats ~446 legitimate parity targets (517 - 60 blocked - ~11 host/charter)

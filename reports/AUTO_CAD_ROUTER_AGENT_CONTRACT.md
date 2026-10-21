@@ -1,6 +1,6 @@
 # AutoCAD SDK Router -- Agent Contract (local rebuild)
 
-**Router home**: `D:\dev\99_tools\autocad-sdk-router`
+**Router home**: `D:\00_dev\01_agent-setup\50_tools\02_autocad-mcp\autocad-mcp`
 **Single entrypoint**: `tools\autocad-router.ps1`
 **Rebuilt**: 2026-06-17 (native ARX/DBX-first control-plane contract; original DWG writes allowed)
 **Schema**: `ariadne.autocad_router_*.v2`
@@ -16,7 +16,7 @@ router first. State your **intent**; the router selects the strongest currently
 task explicitly overrides via `-Route`.
 
 ```powershell
-& 'D:\dev\99_tools\autocad-sdk-router\tools\autocad-router.ps1' -Action status
+& 'D:\00_dev\01_agent-setup\50_tools\02_autocad-mcp\autocad-mcp\tools\autocad-router.ps1' -Action status
 ```
 
 ---
@@ -119,7 +119,7 @@ AutoCAD SDK route.
 ## 4. Examples
 
 ```powershell
-$R = 'D:\dev\99_tools\autocad-sdk-router\tools\autocad-router.ps1'
+$R = 'D:\00_dev\01_agent-setup\50_tools\02_autocad-mcp\autocad-mcp\tools\autocad-router.ps1'
 
 # Availability snapshot (live probe)
 & $R -Action status
@@ -175,7 +175,7 @@ $R = 'D:\dev\99_tools\autocad-sdk-router\tools\autocad-router.ps1'
 ## 5. Engine / install notes (honest gaps)
 
 - **`dwg_libredwg_sidecar` AVAILABLE**: LibreDWG 0.13.4 win64 sidecar is installed under
-  `D:\dev\99_tools\libredwg\bin`. It is invoked as a separate CLI process with
+  `D:\10_data\20_vendor\libredwg\bin`. It is invoked as a separate CLI process with
   `dwgread -O JSON|DXF -o <out> <input.dwg>`. GPL: keep it a separate process; never
   import, link, or bundle.
 - **`geo_vector_route`**: native `osgeo.gdal` binding is NOT installed (no Windows wheel).
@@ -197,12 +197,14 @@ $R = 'D:\dev\99_tools\autocad-sdk-router\tools\autocad-router.ps1'
 
 ## 6. Env-var binding and enforcement (ARIADNE_AUTOCAD_ROUTER_*)
 
+> 2026-10-12 note: Ariadne is retired and `ariadne_entrypoint_common.ps1` below no longer exists. This section is a pre-retirement record, not a current procedure; its paths keep their old names.
+
 The Ariadne tracked entrypoints export `ARIADNE_AUTOCAD_ROUTER_*` pointing at this local
 router from `D:\dev\_ariadne\bin\ariadne_entrypoint_common.ps1`.
 
 - `ARIADNE_AUTOCAD_ROUTER_ROOT=D:\dev\99_tools\autocad-sdk-router`
 - `ARIADNE_AUTOCAD_ROUTER_PATH=D:\dev\99_tools\autocad-sdk-router\tools\autocad-router.ps1`
-- `ARIADNE_LIBREDWG_BIN_DIR=D:\dev\99_tools\libredwg\bin`
+- `ARIADNE_LIBREDWG_BIN_DIR=D:\10_data\20_vendor\libredwg\bin`
 - `ARIADNE_CAD_ROUTER_ENFORCEMENT=required`
 - `ARIADNE_CAD_ROUTER_PROMPT_PATH=D:\dev\_ariadne\context\live\CAD_ROUTER_ENFORCEMENT.md`
 

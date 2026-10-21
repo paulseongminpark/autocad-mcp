@@ -542,7 +542,8 @@ def _display_output_roots(router_home: Path) -> tuple[Path, ...]:
     return (
         router_home / "staging",
         router_home / "runs",
-        Path(r"D:\runs"),
+        Path(r"D:\90_tmp"),
+        Path(r"D:\20_runs"),
         temp_root,
     )
 
@@ -586,7 +587,7 @@ def _validate_display_output_dir(out_dir: Path, router_home: Path) -> dict:
             "resolved_path": str(resolved_candidate),
             "allowed_root": str(resolved_root),
         }
-    reason = "output directory is outside permitted staging/, runs/, D:\\runs, or %TEMP% roots"
+    reason = "output directory is outside permitted staging/, runs/, D:\\90_tmp, D:\\20_runs, or %TEMP% roots"
     if root_errors:
         reason += "; permitted-root inspection failed: " + "; ".join(root_errors)
     return {"valid": False, "reason": reason, "path": str(candidate)}

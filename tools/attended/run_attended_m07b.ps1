@@ -13,7 +13,7 @@ $ErrorActionPreference = 'Stop'
 # Three safety gates must pass; only the launched PID is ever closed.
 
 $py    = 'C:\Users\PAUL\AppData\Local\Programs\Python\Python312\python.exe'
-$root  = 'D:\dev\99_tools\autocad-sdk-router'
+$root  = 'D:\00_dev\01_agent-setup\50_tools\02_autocad-mcp\autocad-mcp'
 $acad  = 'C:\Program Files\Autodesk\AutoCAD 2027\acad.exe'
 $bin   = Join-Path $root 'src\Ariadne.AcadNative\bin\x64\Release'
 $ts    = Get-Date -Format 'yyyyMMdd_HHmmss'

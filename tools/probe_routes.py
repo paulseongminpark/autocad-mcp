@@ -86,7 +86,7 @@ def _extra_cli_dirs(candidates):
     if names.intersection({"dwgread.exe", "dwgread", "dwg2dxf.exe", "dwg2dxf"}):
         dirs.extend([
             os.environ.get("ARIADNE_LIBREDWG_BIN_DIR"),
-            r"D:\dev\99_tools\libredwg\bin",
+            r"D:\10_data\20_vendor\libredwg\bin",
             r"C:\msys64\mingw64\bin",
             r"C:\msys64\ucrt64\bin",
         ])

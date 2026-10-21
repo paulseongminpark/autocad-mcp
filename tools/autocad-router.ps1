@@ -26,7 +26,7 @@ param(
 
 # =============================================================================
 # AutoCAD SDK Router (local rebuild) -- single entrypoint, 12-route spec.
-# Home: D:\dev\99_tools\autocad-sdk-router
+# Home: D:\00_dev\01_agent-setup\50_tools\02_autocad-mcp\autocad-mcp
 #
 # -Action status  : LIVE-probe every route's tool availability -> status JSON.
 # -Action select  : map -Intent (or -Route) to a route, honor availability + fallback.

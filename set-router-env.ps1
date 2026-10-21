@@ -1,16 +1,16 @@
 # set-router-env.ps1 -- session-local repoint of ARIADNE_AUTOCAD_ROUTER_* to the
-# LOCAL router at D:\dev\99_tools\autocad-sdk-router.
+# LOCAL router at D:\00_dev\01_agent-setup\50_tools\02_autocad-mcp\autocad-mcp.
 #
 # This is SAFE: it only sets Process-scope env vars for the current shell. Tracked
 # Ariadne wrappers already export these values; dot-source this only for direct
 # interactive/ad-hoc shells:
 #
-#     . D:\dev\99_tools\autocad-sdk-router\set-router-env.ps1
+#     . D:\00_dev\01_agent-setup\50_tools\02_autocad-mcp\autocad-mcp\set-router-env.ps1
 #
 # After dot-sourcing, $env:ARIADNE_AUTOCAD_ROUTER_PATH points at the local router.
 
-$LocalRouterRoot = 'D:\dev\99_tools\autocad-sdk-router'
-$LocalLibreDwgBin = 'D:\dev\99_tools\libredwg\bin'
+$LocalRouterRoot = 'D:\00_dev\01_agent-setup\50_tools\02_autocad-mcp\autocad-mcp'
+$LocalLibreDwgBin = 'D:\10_data\20_vendor\libredwg\bin'
 
 $env:ARIADNE_AUTOCAD_ROUTER_ROOT             = $LocalRouterRoot
 $env:ARIADNE_AUTOCAD_ROUTER_PATH             = Join-Path $LocalRouterRoot 'tools\autocad-router.ps1'
