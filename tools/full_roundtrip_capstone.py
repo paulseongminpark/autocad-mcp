@@ -89,12 +89,12 @@ _ROUTER_HOME = os.path.dirname(_THIS_DIR)
 if _THIS_DIR not in sys.path:
     sys.path.insert(0, _THIS_DIR)
 
-# Mission-cited path (D:\dev\_ariadne\alm\build\input.dwg) does not exist on
+# Mission-cited path (D:\80_archive\dev-retirement-20261012\alm-build\data\input.dwg) does not exist on
 # disk as of this build -- the live file at that location is input0616.dwg.
 # check_identity() is run explicitly (see main()) against native_sample.dwg
 # so this drift is recorded as data, never silently assumed.
 DEFAULT_DWG = os.path.join(_ROUTER_HOME, "tests", "fixtures", "native_sample.dwg")
-DEFAULT_COMPARE_PATH = r"D:\dev\_ariadne\alm\build\input0616.dwg"
+DEFAULT_COMPARE_PATH = r"D:\80_archive\dev-retirement-20261012\alm-build\data\input0616.dwg"
 DEFAULT_SEED = os.path.join(_ROUTER_HOME, "tests", "fixtures", "blank_seed.dwg")
 
 

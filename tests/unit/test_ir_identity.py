@@ -20,7 +20,7 @@ import ir_builder  # type: ignore
 import ir_identity  # type: ignore
 
 
-_EXTERNAL_RUNS = Path("D:/dev/99_tools/autocad-sdk-router/runs")
+_EXTERNAL_RUNS = Path("D:/00_dev/01_agent-setup/50_tools/02_autocad-mcp/autocad-mcp/runs")
 _MCP_VERDICT_PRE = _EXTERNAL_RUNS / "mcp_verdict_20260706" / "pre" / "dwg_graph_ir.json"
 _MCP_VERDICT_POST = _EXTERNAL_RUNS / "mcp_verdict_20260706" / "post" / "dwg_graph_ir.json"
 _CAPSTONE_CENSUS_IR = _EXTERNAL_RUNS / "capstone_composed_20260706" / "census" / "dwg_graph_ir.json"

@@ -17,15 +17,15 @@ SCHEMA_ID = "ariadne.modified_composition.v1"
 _INPUT_ENCODING = "utf-8-sig"
 
 DEFAULT_CENSUS_IR = (
-    r"D:\dev\99_tools\autocad-sdk-router\runs\e2e_1dwg_R4n_origin_20260709"
+    r"D:\20_runs\E301_20260706_e2e-roundtrip-regen\e03_regeneration-probes\runs\e2e_1dwg_R4n_origin_20260709"
     r"\census\dwg_graph_ir.json"
 )
 DEFAULT_POST_IR = (
-    r"D:\dev\99_tools\autocad-sdk-router\runs\e2e_1dwg_R4q_dashphase_20260709"
+    r"D:\20_runs\E301_20260706_e2e-roundtrip-regen\e03_regeneration-probes\runs\e2e_1dwg_R4q_dashphase_20260709"
     r"\regen\post\dwg_graph_ir.json"
 )
 DEFAULT_INTERIOR_DIFF = (
-    r"D:\dev\99_tools\autocad-sdk-router\runs\e2e_1dwg_R4q_dashphase_20260709"
+    r"D:\20_runs\E301_20260706_e2e-roundtrip-regen\e03_regeneration-probes\runs\e2e_1dwg_R4q_dashphase_20260709"
     r"\interior_diff.json"
 )
 DEFAULT_OUT_JSON = r"reports\interior100\modified_composition_R4q.json"

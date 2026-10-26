@@ -54,11 +54,11 @@ import cad_diff
 SCHEMA_ID = "ariadne.loops_residue_analysis.v1"
 _INPUT_ENCODING = "utf-8-sig"
 
-_R4R_RUN = r"D:\dev\99_tools\autocad-sdk-router\runs\e2e_1dwg_R4r_assoc_20260710"
+_R4R_RUN = r"D:\20_runs\E301_20260706_e2e-roundtrip-regen\e03_regeneration-probes\runs\e2e_1dwg_R4r_assoc_20260710"
 DEFAULT_CENSUS_IR = _R4R_RUN + r"\census\dwg_graph_ir.json"
 DEFAULT_POST_IR = _R4R_RUN + r"\regen\post\dwg_graph_ir.json"
 DEFAULT_INTERIOR_DIFF = (
-    r"D:\dev\99_tools\autocad-sdk-router\reports\interior100"
+    r"D:\00_dev\01_agent-setup\50_tools\02_autocad-mcp\autocad-mcp\reports\interior100"
     r"\R4r_remeasure_lex0008.json"
 )
 DEFAULT_OUT_JSON = r"reports\interior100\loops_residue_analysis_R4s.json"
