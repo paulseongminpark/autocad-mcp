@@ -30,7 +30,7 @@ SIDECAR = FIXTURE.with_suffix(FIXTURE.suffix + ".sha256")
 EXPECTED_SHA256 = "529373624b0bb388f21ffbb58a3a15c0da3d09d80eb51d0ce8a9523ef900e39a"
 EXPECTED_HEX = bytes(range(24)).hex()
 ACCORECONSOLE = Path(r"C:\Program Files\Autodesk\AutoCAD 2027\accoreconsole.exe")
-RUN_ROOT = Path(r"D:\runs\autocad-sdk-router\pytest")
+RUN_ROOT = Path(r"D:\90_tmp\autocad-mcp\pytest")
 
 
 def _sha256(path: Path) -> str:

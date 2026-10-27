@@ -5,7 +5,7 @@ param(
   [Parameter(Mandatory=$true)][string]$RunDir,
   [int]$TimeoutSec = 240,
   [string]$AcadExe = 'C:\Program Files\Autodesk\AutoCAD 2027\acad.exe',
-  [string]$RouterHome = 'D:\dev\99_tools\autocad-sdk-router__wR_attended',
+  [string]$RouterHome = 'D:\00_dev\01_agent-setup\50_tools\02_autocad-mcp\autocad-mcp',
   [string]$NativeBinDir = ''
 )
 $ErrorActionPreference = 'Stop'
