@@ -63,7 +63,6 @@ def _find_sample_dwg():
     candidates = [
         os.path.join(_REPO, "samples", "input.dwg"),
         os.path.join(_REPO, "tests", "fixtures", "input.dwg"),
-        r"D:\80_archive\dev-retirement-20261012\alm-build\data\input.dwg",
     ]
     for c in candidates:
         if os.path.isfile(c):

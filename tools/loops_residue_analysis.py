@@ -61,8 +61,8 @@ DEFAULT_INTERIOR_DIFF = (
     r"D:\00_dev\01_agent-setup\50_tools\02_autocad-mcp\autocad-mcp\reports\interior100"
     r"\R4r_remeasure_lex0008.json"
 )
-DEFAULT_OUT_JSON = r"reports\interior100\loops_residue_analysis_R4s.json"
-DEFAULT_OUT_MD = r"reports\interior100\loops_residue_analysis_R4s.md"
+DEFAULT_OUT_JSON = r"D:\90_tmp\autocad-mcp\interior100\loops_residue_analysis_R4s.json"
+DEFAULT_OUT_MD = r"D:\90_tmp\autocad-mcp\interior100\loops_residue_analysis_R4s.md"
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _REPO_ROOT = os.path.dirname(_THIS_DIR)
 

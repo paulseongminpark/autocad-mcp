@@ -28,8 +28,8 @@ DEFAULT_INTERIOR_DIFF = (
     r"D:\20_runs\E301_20260706_e2e-roundtrip-regen\e03_regeneration-probes\runs\e2e_1dwg_R4q_dashphase_20260709"
     r"\interior_diff.json"
 )
-DEFAULT_OUT_JSON = r"reports\interior100\modified_composition_R4q.json"
-DEFAULT_OUT_MD = r"reports\interior100\modified_composition_R4q.md"
+DEFAULT_OUT_JSON = r"D:\90_tmp\autocad-mcp\interior100\modified_composition_R4q.json"
+DEFAULT_OUT_MD = r"D:\90_tmp\autocad-mcp\interior100\modified_composition_R4q.md"
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _REPO_ROOT = os.path.dirname(_THIS_DIR)
 
