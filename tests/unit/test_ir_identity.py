@@ -21,10 +21,11 @@ import ir_identity  # type: ignore
 
 
 _EXTERNAL_RUNS = Path("D:/00_dev/01_agent-setup/50_tools/02_autocad-mcp/autocad-mcp/runs")
+_CAPSTONE_RUNS = Path("D:/20_runs/E301_20260706_e2e-roundtrip-regen/e01_capstone/runs")
 _MCP_VERDICT_PRE = _EXTERNAL_RUNS / "mcp_verdict_20260706" / "pre" / "dwg_graph_ir.json"
 _MCP_VERDICT_POST = _EXTERNAL_RUNS / "mcp_verdict_20260706" / "post" / "dwg_graph_ir.json"
-_CAPSTONE_CENSUS_IR = _EXTERNAL_RUNS / "capstone_composed_20260706" / "census" / "dwg_graph_ir.json"
-_CAPSTONE_REGEN_POST = _EXTERNAL_RUNS / "capstone_composed_20260706" / "regen" / "post" / "dwg_graph_ir.json"
+_CAPSTONE_CENSUS_IR = _CAPSTONE_RUNS / "capstone_composed_20260706" / "census" / "dwg_graph_ir.json"
+_CAPSTONE_REGEN_POST = _CAPSTONE_RUNS / "capstone_composed_20260706" / "regen" / "post" / "dwg_graph_ir.json"
 
 
 def _source_meta() -> dict:
