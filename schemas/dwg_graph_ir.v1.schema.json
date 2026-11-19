@@ -701,6 +701,11 @@
         "extracted_at": {
           "type": "string",
           "description": "Extraction timestamp (ISO-8601)."
+        },
+        "producer": {
+          "type": "object",
+          "description": "What produced this IR, so it can be made again: code {repo, commit, dirty}, engine {path, file_version}, native_modules {file name: sha256}, operation, argv; a part that could not be determined is null and its reason is listed in errors.",
+          "additionalProperties": true
         }
       }
     },

@@ -53,6 +53,7 @@ DISPLAY_MEMBERSHIP_GEOMETRY_SCOPES = frozenset({
 if str(_THIS_DIR) not in sys.path:
     sys.path.insert(0, str(_THIS_DIR))
 
+import producer_stamp  # noqa: E402
 import run_job  # noqa: E402  (sibling helper, Lane B1)
 from operation_provenance import (  # noqa: E402
     ExecutionReceiptError,
@@ -1086,6 +1087,7 @@ class Cad:
                                           staged=str(staged),
                                           reason="ir_builder not available")
 
+        engine_output = (envelope.get("execution") or {}).get("engine_output", {})
         source_meta = {
             "dwg_path": str(staged),
             "original_path": str(src.resolve()),
@@ -1093,10 +1095,10 @@ class Cad:
             "format": "dwg",
             "byte_size": staged_meta["byte_size"],
             "sha256": _sha256_head(staged, 64).lower(),
-            "extractor": (envelope.get("execution") or {}).get("engine_output", {}).get("winning_engine")
-            or "objectarx",
+            "extractor": engine_output.get("winning_engine") or "objectarx",
             "engine_tier": "native_arx",
             "extracted_at": _now_iso(),
+            "producer": producer_stamp.stamp(engine_output, operation),
         }
         summary = extract.get("summary")
         try:
@@ -1181,6 +1183,9 @@ class Cad:
             "engine_tier": "native_arx",
             "route": "dwg_truth_autocad",
             "extracted_at": _now_iso(),
+            "producer": producer_stamp.stamp(
+                ((run_res.get("envelope") or {}).get("execution") or {}).get("engine_output"),
+                operation),
         }
         try:
             ir = ir_builder.build_ir_from_database_graph(result_obj, source_meta)
