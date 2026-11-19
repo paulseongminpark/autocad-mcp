@@ -88,6 +88,18 @@ def test_module_hashes_equal_sha256_of_the_reported_files(tmp_path):
     assert not any(e.startswith("native_modules") for e in producer.get("errors", []))
 
 
+def test_geometry_extract_path_hashes_the_extractor_dll(tmp_path):
+    # inspect.geometry.extract NETLOADs a managed extractor DLL instead of crx/dbx.
+    dll = tmp_path / "Ariadne.AutoCad.Extractor.dll"
+    dll.write_bytes(b"dll bytes")
+    producer = producer_stamp.stamp({"extractor_dll": str(dll)}, "inspect.geometry.extract")
+
+    assert producer["native_modules"] == {
+        "Ariadne.AutoCad.Extractor.dll": hashlib.sha256(b"dll bytes").hexdigest(),
+    }
+    assert not any(e.startswith("native_modules") for e in producer.get("errors", []))
+
+
 def test_missing_module_is_null_with_reason(tmp_path):
     missing = tmp_path / "Ariadne.AcadNative.crx"
     producer = producer_stamp.stamp({"crx_module": str(missing)}, "inspect.database.graph")

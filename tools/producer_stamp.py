@@ -26,7 +26,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 _DIRTY_PATHS = ("tools", "src", "schemas", "prebuilt")
 _GIT_TIMEOUT_S = 10
 # engine_output keys under which router lanes report the native modules they loaded.
-_MODULE_KEYS = ("crx_module", "dbx_module", "arx_module")
+_MODULE_KEYS = ("crx_module", "dbx_module", "arx_module", "extractor_dll")
 
 
 def stamp(engine_output, operation: str, *, repo_root: Path | str = REPO_ROOT) -> dict:

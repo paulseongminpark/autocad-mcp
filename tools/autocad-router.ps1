@@ -2345,6 +2345,8 @@ function Invoke-AutoCadRoute {
       status          = 'ok'
       mode            = $ExtractMode
       winning_engine  = $final.engine
+      engine          = $engine
+      extractor_dll   = $(if (@('arx', 'dbx') -contains $final.engine) { $dll } else { $null })
       staged_input    = $stagedDwg
       extract_json    = $final.extract_json
       extract_summary = $summary
