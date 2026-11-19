@@ -1873,6 +1873,7 @@ function Invoke-CadJobRoute {
         -SaveCommandIssued (@('write_copy', 'write_original', 'live_edit') -contains $effectiveWriteMode) `
         -Additional ([ordered]@{
           mode = 'native_cad_job'
+          engine = $engine
           job = $jobIn
           result_json = $resultOut
           result = $result
@@ -1928,6 +1929,7 @@ function Invoke-CadJobRoute {
       -SaveCommandIssued ($effectiveWriteMode -eq 'write_original') `
       -Additional ([ordered]@{
         mode = 'cad_job'
+        engine = $engine
         job = $jobIn
         result_json = $resultOut
         result = $result
